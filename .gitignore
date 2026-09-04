@@ -1,0 +1,16 @@
+# Vercel
+.vercel
+
+# Variables de entorno / credenciales (Supabase, API keys, etc.)
+.env
+.env.local
+.env*.local
+
+# Dependencias (si en el futuro se agrega tooling con npm)
+node_modules
+
+# Sistema operativo / editor
+.DS_Store
+Thumbs.db
+.idea
+.vscode
