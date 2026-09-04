@@ -12,6 +12,12 @@ Portal de control interno de Purexis: organización de contenido, metas financie
 
 Sitio estático, sin build. En Vercel: importar este repo, sin configuración adicional (framework preset "Other").
 
-## Estado de la sincronización entre dispositivos y con Mercado Libre
+## Base de datos
 
-Esta versión guarda los datos en el `localStorage` de cada navegador — **no sincroniza entre dispositivos todavía**. Esa función (junto con la actualización automática de precios desde Mercado Libre) se está migrando desde la versión anterior, que usaba una base de datos exclusiva del entorno de Claude, a una base real (Supabase) compatible con este deploy.
+Postgres real en [Supabase](https://supabase.com), consultado directo desde el navegador con la key `publishable` (segura para exponer client-side — la protección la da Row Level Security en Postgres, no ocultar la key). Sin login: cualquiera con el link lee y escribe (decisión tomada a propósito para simplificar). Sincroniza entre todos los dispositivos en vivo vía Supabase Realtime.
+
+**Setup inicial (una sola vez):** pegar el contenido de [`supabase_schema.sql`](supabase_schema.sql) en el SQL Editor del proyecto de Supabase y ejecutarlo. Crea las tablas (`contenido`, `metas`, `config`, `precios_meli`), las policies de RLS y habilita Realtime.
+
+## Precios sincronizados con Mercado Libre
+
+Una tarea programada de Claude lee el precio vigente de las 4 publicaciones (Mercado Libre bloquea cualquier fetch automatizado que no venga de un navegador real, así que hace falta ese paso) y lo escribe en la tabla `precios_meli` de Supabase. El panel se suscribe en vivo a esa tabla — el precio de Mercado Libre siempre pisa al manual.
