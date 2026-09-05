@@ -350,10 +350,11 @@ const IC={
   recordatorios:'<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
   ads:'<path d="m3 11 18-5v12L3 13v-2z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
   play:'<circle cx="12" cy="12" r="9"/><path d="M10 8.5v7l6-3.5z"/>',
+  comparar:'<path d="M4 20V10M12 20V4M20 20v-7"/>',
   config:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
 };
 const NAV=[
-  ["resumen","Resumen"],["contenido","Contenido"],["ads","Meta Ads"],["metas","Metas"],
+  ["resumen","Resumen"],["contenido","Contenido"],["comparar","Comparar"],["ads","Meta Ads"],["metas","Metas"],
   ["productos","Productos"],["metricas","Métricas"],["reportes","Reportes"],["recordatorios","Recordatorios"],
 ];
 
@@ -505,6 +506,14 @@ function productTotals(items){const t={};PRODUCTOS.forEach(p=>t[p.id]=0);(items|
 function totIngresos(items){return (items||state.contenido).reduce((s,it)=>s+ingresosItem(it),0);}
 function totUnidades(items){return (items||state.contenido).reduce((s,it)=>s+unidades(it),0);}
 const totSeguidoresGanados=items=>(items||state.contenido).reduce((s,it)=>s+(it.seguidoresGanados||0),0);
+/** Seguidores de hoy. Los que cargás por reel SUMAN sobre la base inicial.
+ *  Si además anotaste el número real de Instagram y es mayor, ese manda:
+ *  siempre llegan seguidores que no vienen de un reel que estés midiendo. */
+function seguidoresHoy(){
+  const base=state.config.seguidoresInicial||0;
+  const manual=state.config.seguidoresActual||0;
+  return Math.max(manual,base+totSeguidoresGanados());
+}
 
 /* ============================================================
    MOTOR DE DECISIÓN PARA META ADS
@@ -637,7 +646,7 @@ function adsRanking(){
 function metaActual(m){
   if(m.metrica==="unidades")return totUnidades();
   if(m.metrica==="ingresos")return totIngresos();
-  if(m.metrica==="seguidores")return state.config.seguidoresActual||0;
+  if(m.metrica==="seguidores")return seguidoresHoy();
   if(m.metrica==="publicaciones")return publicados().length;
   if(m.metrica==="vistas")return publicados().reduce((s,c)=>s+(c.vistas||0),0);
   return m.actual||0;
@@ -755,7 +764,7 @@ const Views={};
 Views.resumen=()=>{
   const pub=publicados();
   const ingresos=totIngresos(), uni=totUnidades();
-  const seg=state.config.seguidoresActual||0, segIni=state.config.seguidoresInicial||seg;
+  const seg=seguidoresHoy(), segIni=state.config.seguidoresInicial||0;
   const segGrow=segIni?((seg-segIni)/segIni*100):0;
   const rem=reminders();
   const metasProg=state.metas.length?Math.round(state.metas.reduce((s,m)=>s+Math.min(100,metaActual(m)/m.objetivo*100),0)/state.metas.length):0;
@@ -1272,6 +1281,139 @@ function renderBusqueda(q){
       </button>`).join("")}`;
 }
 
+/* ============================================================
+   COMPARADOR DE PIEZAS
+   Pensado para el flujo real: se hacen varias versiones del mismo
+   reel y hay que ver cuál funcionó mejor — no solo en alcance, sino
+   en lo que termina importando, que es si vendió.
+   ============================================================ */
+let comparar=[];   // ids seleccionados (máx 4)
+
+/** Quita "Versión 2", "V3" del título para agrupar variantes del mismo reel. */
+function tituloBase(t){
+  return normaliza(t).replace(/\s*[-–·|]?\s*(versi[oó]n|version|vers|v)\s*\.?\s*\d+\s*$/i,"")
+    .replace(/\s*[-–·|]\s*(final|nuevo|nueva|copia)\s*$/i,"").trim();
+}
+/** Grupos de versiones detectados automáticamente (2+ piezas con el mismo título base). */
+function gruposDeVersiones(){
+  const m={};
+  state.contenido.forEach(c=>{const k=tituloBase(c.titulo);(m[k]=m[k]||[]).push(c);});
+  return Object.entries(m).filter(([,arr])=>arr.length>1)
+    .map(([k,arr])=>({base:k,arr:arr.sort((a,b)=>pd(a.fecha)-pd(b.fecha))}));
+}
+
+/** Filas de la tabla comparativa. Las marcadas "clave" son las que deciden. */
+const METRICAS_CMP=[
+  {l:"Alcance",            get:c=>c.alcance||0,                                   fmt:num},
+  {l:"Vistas",             get:c=>c.vistas||0,                                    fmt:num},
+  {l:"Retención (vistas/alcance)",get:c=>c.alcance?c.vistas/c.alcance:0,          fmt:v=>v.toFixed(2)+"×"},
+  {l:"Likes",              get:c=>c.likes||0,                                     fmt:num},
+  {l:"Comentarios",        get:c=>c.comentarios||0,                               fmt:num},
+  {l:"Guardados",          get:c=>c.guardados||0,                                 fmt:num},
+  {l:"Compartidos",        get:c=>c.compartidos||0,                               fmt:num},
+  {l:"Intención (guard+comp / alcance)",get:c=>c.alcance?((c.guardados||0)+(c.compartidos||0))/c.alcance:0,fmt:v=>(v*100).toFixed(2)+"%"},
+  {l:"Seguidores que trajo",get:c=>c.seguidoresGanados||0,                        fmt:v=>"+"+num(v)},
+  {l:"Unidades vendidas",  get:c=>unidades(c),                                    fmt:v=>v+" u", clave:true},
+  {l:"Conversión",         get:c=>c.alcance?unidades(c)/c.alcance:0,              fmt:v=>(v*100).toFixed(2)+"%", clave:true},
+  {l:"Ingresos",           get:c=>ingresosItem(c),                                fmt:money},
+  {l:"Ingreso por 1.000 de alcance",get:c=>c.alcance?ingresosItem(c)/c.alcance*1000:0,fmt:money, clave:true},
+  {l:"Puntaje para pautar",get:c=>adsEval(c).score,                               fmt:v=>v+"/100", clave:true},
+];
+
+Views.comparar=()=>{
+  const sel=comparar.map(id=>state.contenido.find(c=>c.id===id)).filter(Boolean);
+  const grupos=gruposDeVersiones();
+
+  const chips=[...state.contenido].sort((a,b)=>pd(b.fecha)-pd(a.fecha)).map(c=>{
+    const on=comparar.includes(c.id), carp=CMAP[c.producto]||CMAP.general;
+    return `<button class="btn sm" data-cmp="${c.id}" style="border-color:${on?"var(--accent)":"var(--border)"};background:${on?"var(--accent-soft)":"var(--surface)"};color:${on?"var(--accent-ink)":"var(--text)"}">
+      <span style="width:7px;height:7px;border-radius:2px;background:${carp.color};display:inline-block"></span>
+      ${esc(c.titulo)}</button>`;}).join("");
+
+  let tabla="",conclusion="";
+  if(sel.length>=2){
+    const cab=sel.map(c=>{
+      const ev=adsEval(c),st=ADS_ESTADOS[ev.estado]||ADS_ESTADOS.no,carp=CMAP[c.producto]||CMAP.general;
+      return `<th style="min-width:180px;text-align:left;padding:14px 16px;vertical-align:top">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <b style="font-size:13.5px;color:var(--text)">${esc(c.titulo)}</b>
+          ${c.url?`<a href="${esc(c.url)}" target="_blank" rel="noopener" style="color:var(--accent-ink);display:inline-flex">${icon("play",14)}</a>`:""}
+        </div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:7px">
+          <span class="chip" style="background:color-mix(in srgb,${carp.color} 14%,transparent);color:${carp.color}">${carp.nombre}</span>
+          ${tipoChips(c.tipos)}
+        </div>
+        <div class="muted" style="font-weight:500;font-size:11px;margin-top:6px;text-transform:none;letter-spacing:0">
+          ${fdatel(c.fecha)} · ${TIPOS[c.tipo]} · ${c.canal==="anuncio"?"Anuncio":"Orgánico"}<br>
+          ${c.framework&&FRAMEWORKS[c.framework]?FRAMEWORKS[c.framework].t:"Framework sin definir"}
+        </div>
+        <span class="chip" style="background:${st.bg};color:${st.c};margin-top:7px">${st.t}</span>
+      </th>`;}).join("");
+
+    const filas=METRICAS_CMP.map(m=>{
+      const vals=sel.map(c=>m.get(c));
+      const max=Math.max(...vals);
+      const hayDif=max>0&&vals.some(v=>v!==max);
+      return `<tr>
+        <td style="font-weight:600;font-size:12.5px;${m.clave?"color:var(--text)":"color:var(--muted)"}">${m.l}${m.clave?' <span class="chip" style="background:var(--accent-soft);color:var(--accent-ink);font-size:9.5px">clave</span>':""}</td>
+        ${vals.map(v=>{
+          const gana=max>0&&v===max&&hayDif;
+          const dif=(max>0&&v!==max)?` <small class="muted">(${Math.round((v-max)/max*100)}%)</small>`:"";
+          return `<td class="tnum" style="font-weight:${gana?"800":"600"};color:${gana?"var(--good)":"var(--text)"}">${m.fmt(v)}${gana?" ▲":dif}</td>`;
+        }).join("")}
+      </tr>`;}).join("");
+
+    tabla=`<div class="tablecard"><div class="wrap"><table class="dt">
+      <thead><tr><th style="min-width:190px">Métrica</th>${cab}</tr></thead>
+      <tbody>${filas}</tbody></table></div></div>`;
+
+    // la lectura separa "ganó en alcance" de "ganó vendiendo", que es lo que confunde
+    const porAlcance=[...sel].sort((a,b)=>(b.alcance||0)-(a.alcance||0))[0];
+    const porConv=[...sel].sort((a,b)=>{
+      const ca=a.alcance?unidades(a)/a.alcance:0, cb=b.alcance?unidades(b)/b.alcance:0;return cb-ca;})[0];
+    const porScore=[...sel].sort((a,b)=>adsEval(b).score-adsEval(a).score)[0];
+    let txt;
+    if(!sel.some(c=>unidades(c)>0)){
+      txt=`Ninguna vendió todavía, así que esto compara alcance y señales. <b>${esc(porAlcance.titulo)}</b> llegó a más gente. Ojo: más alcance no significa que venda mejor — eso recién se sabe cuando alguna registre ventas.`;
+    }else if(porAlcance.id!==porConv.id){
+      txt=`Acá está lo interesante: <b>${esc(porAlcance.titulo)}</b> ganó en alcance, pero <b>${esc(porConv.titulo)}</b> convierte mejor por persona alcanzada. Para pautar conviene la segunda — el alcance se compra, la conversión no.`;
+    }else{
+      txt=`<b>${esc(porConv.titulo)}</b> gana en alcance y en conversión a la vez. Es la versión a repetir y la candidata natural para pautar.`;
+    }
+    conclusion=`<div class="card pad" style="margin-top:16px;border-left:3px solid var(--accent)">
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <div style="flex:none;width:32px;height:32px;border-radius:9px;background:var(--accent-soft);color:var(--accent-ink);display:grid;place-items:center">${icon("metricas",17)}</div>
+        <div><b style="font-size:13.5px">Lectura</b>
+          <div class="muted" style="font-size:12.5px;line-height:1.55;margin-top:4px">${txt}</div>
+          <div class="muted" style="font-size:11.5px;margin-top:7px">Mejor puntaje para pautar: <b style="color:var(--text)">${esc(porScore.titulo)}</b> (${adsEval(porScore).score}/100)</div>
+        </div>
+      </div></div>`;
+  }
+
+  return `
+  <div class="section-h">
+    <div><div class="eyebrow">Versiones y variantes</div><h2 style="font-size:19px">Comparar piezas</h2></div>
+    <span class="sp"></span>
+    ${comparar.length?`<button class="btn sm" data-action="limpiarCmp">Limpiar</button>`:""}
+  </div>
+
+  ${grupos.length?`<div class="card pad" style="margin-bottom:16px">
+    <div class="eyebrow" style="margin-bottom:10px">Versiones detectadas</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${grupos.map((g,i)=>`<button class="btn sm pri" data-grupo="${i}">${esc(g.arr[0].titulo.replace(/\s*[-–·|]?\s*(versi[oó]n|version|v)\s*\.?\s*\d+\s*$/i,""))} · ${g.arr.length} versiones</button>`).join("")}
+    </div>
+    <div class="muted" style="font-size:11.5px;margin-top:9px">Las detecta por el título. Un click y las compara todas.</div>
+  </div>`:""}
+
+  <div class="card pad" style="margin-bottom:16px">
+    <div class="eyebrow" style="margin-bottom:10px">Elegí 2 a 4 piezas ${comparar.length?`· <span style="color:var(--accent-ink)">${comparar.length} seleccionada${comparar.length!==1?"s":""}</span>`:""}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${chips||`<span class="muted" style="font-size:12.5px">Todavía no hay contenido cargado.</span>`}</div>
+  </div>
+
+  ${sel.length>=2?tabla+conclusion
+    :`<div class="card"><div class="empty">${icon("metricas",30)}<div>Elegí al menos 2 piezas para compararlas.</div></div></div>`}`;
+};
+
 /* ---------- META ADS ---------- */
 function tipoChips(tipos){
   if(!tipos||!tipos.length)return `<span class="chip" style="background:var(--surface-3);color:var(--muted-2)">sin tipo</span>`;
@@ -1645,7 +1787,7 @@ function toast(msg){const t=document.createElement("div");t.textContent=msg;t.st
    ROUTER / RENDER
    ============================================================ */
 let current="resumen";
-const TITLES={resumen:"Resumen",contenido:"Contenido",ads:"Meta Ads",metas:"Metas",productos:"Productos",metricas:"Métricas",reportes:"Reportes",recordatorios:"Recordatorios",config:"Configuración"};
+const TITLES={resumen:"Resumen",contenido:"Contenido",comparar:"Comparar",ads:"Meta Ads",metas:"Metas",productos:"Productos",metricas:"Métricas",reportes:"Reportes",recordatorios:"Recordatorios",config:"Configuración"};
 function buildNav(){
   const nav=document.getElementById("nav");const rem=reminders();
   nav.innerHTML=`<div class="lbl">Gestión</div>`+NAV.map(([v,t])=>`<a data-view="${v}" class="${v===current?"on":""}">${icon(v)}<span>${t}</span>${v==="recordatorios"&&rem.total?`<span class="cnt">${rem.total}</span>`:""}</a>`).join("");
@@ -1693,9 +1835,17 @@ document.addEventListener("click",e=>{
   if(e.target.closest("a[href]"))return;
   // click en el fondo del overlay (fuera del cuadro) cierra el modal; clicks adentro siguen su curso
   if(e.target.closest(".overlay")&&!e.target.closest(".modal")){closeModal();return;}
-  const t=e.target.closest("[data-view],[data-action],[data-open],[data-savecont],[data-delcont],[data-editmeta],[data-delmeta],[data-savemeta],[data-met],[data-carpeta],[data-ads]");
+  const t=e.target.closest("[data-view],[data-action],[data-open],[data-savecont],[data-delcont],[data-editmeta],[data-delmeta],[data-savemeta],[data-met],[data-carpeta],[data-ads],[data-cmp],[data-grupo]");
   if(!t)return;
   if(t.dataset.carpeta){contFilter.carpeta=t.dataset.carpeta;render();return;}
+  if(t.dataset.cmp){
+    const id=t.dataset.cmp;
+    if(comparar.includes(id))comparar=comparar.filter(x=>x!==id);
+    else if(comparar.length>=4)toast("Máximo 4 piezas a la vez");
+    else comparar.push(id);
+    render();return;
+  }
+  if(t.dataset.grupo){comparar=gruposDeVersiones()[+t.dataset.grupo].arr.slice(0,4).map(c=>c.id);go("comparar");return;}
   if(t.dataset.ads){const [id,est]=t.dataset.ads.split("|");setAdsEstado(id,est||null);return;}
   if(t.dataset.view){go(t.dataset.view);return;}
   if(t.dataset.open){
@@ -1719,6 +1869,7 @@ document.addEventListener("click",e=>{
   else if(a==="printReport")window.print();
   else if(a==="saveConfig")saveConfigAct();
   else if(a==="recalcPrecios")recalcPrecios();
+  else if(a==="limpiarCmp"){comparar=[];render();}
   else if(a==="wipe"){if(confirm("Esto borra TODO el contenido y las metas cargadas. ¿Seguro?"))wipeAll();}
 });
 
