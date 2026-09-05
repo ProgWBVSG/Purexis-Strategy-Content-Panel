@@ -541,6 +541,16 @@ const ADS_ESTADOS={
   descartado: {t:"Descartado",          c:"var(--muted-2)", bg:"var(--surface-3)", orden:7},
 };
 
+/** Alcance mínimo ADAPTATIVO. Pedir 1.000 fijo deja el sistema mudo en una cuenta
+ *  que todavía mide en cientos: mejor bajar el listón al tamaño real de la cuenta
+ *  (nunca por debajo de 100, donde ya no se puede concluir nada). */
+function alcanceMinimo(){
+  const a=publicados().filter(c=>c.metricasCargadas&&(c.alcance||0)>0).map(c=>c.alcance).sort((x,y)=>x-y);
+  if(!a.length)return ADS_CFG.alcanceMin;
+  const mediana=a[Math.floor(a.length/2)];
+  return Math.max(100,Math.min(ADS_CFG.alcanceMin,Math.round(mediana*0.6)));
+}
+
 /** Referencias del catálogo: el mejor de cada señal, con un piso absoluto para
  *  que un catálogo flojo no produzca un "100" inflado por comparación interna. */
 function adsRefs(){
@@ -584,8 +594,8 @@ function adsEval(it,refs){
     estado="insuficiente";motivo="Todavía no está publicado.";
   }else if(!it.metricasCargadas){
     estado="insuficiente";motivo="Faltan cargar las métricas de esta pieza.";
-  }else if(alcance<ADS_CFG.alcanceMin){
-    estado="insuficiente";motivo=`Solo ${num(alcance)} de alcance: muy poco para concluir algo (mínimo ${num(ADS_CFG.alcanceMin)}).`;
+  }else if(alcance<alcanceMinimo()){
+    estado="insuficiente";motivo=`Solo ${num(alcance)} de alcance: muy poco para concluir algo (mínimo ${num(alcanceMinimo())} según el tamaño actual de tu cuenta).`;
   }else if(!tipos.length){
     estado="insuficiente";motivo="Marcá si es de venta, valor o tendencia para poder evaluarla.";
   }else if(soloTendencia){
@@ -1592,7 +1602,9 @@ function saveContenido(id){
     pilar:g("m_pilar").value,estado:g("m_estado").value,fecha:g("m_fecha").value,gastoAnuncio:gn("m_gasto"),
     vistas:gn("m_vistas"),alcance:gn("m_alcance"),likes:gn("m_likes"),comentarios:gn("m_comentarios"),
     guardados:gn("m_guardados"),compartidos:gn("m_compartidos"),seguidoresGanados:gn("m_seguidores"),
-    ventas,preciosSnapshot:snap,metricasCargadas:g("m_cargada").checked,
+    // si cargó vistas o alcance, la pieza YA tiene métricas: no depende de acordarse del tilde
+    ventas,preciosSnapshot:snap,
+    metricasCargadas:g("m_cargada").checked||gn("m_vistas")>0||gn("m_alcance")>0,
   };
   let o;
   if(id){o=state.contenido.find(x=>x.id===id);Object.assign(o,data);}
