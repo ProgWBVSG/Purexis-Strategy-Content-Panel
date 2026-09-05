@@ -349,6 +349,7 @@ const IC={
   reportes:'<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
   recordatorios:'<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
   ads:'<path d="m3 11 18-5v12L3 13v-2z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+  play:'<circle cx="12" cy="12" r="9"/><path d="M10 8.5v7l6-3.5z"/>',
   config:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
 };
 const NAV=[
@@ -379,7 +380,7 @@ function hydrate(){
 // mapeo fila Postgres (snake_case) <-> objeto JS (camelCase)
 function rowToContenido(r){
   return {id:r.id,titulo:r.titulo,tipo:r.tipo,canal:r.canal,pilar:r.pilar,estado:r.estado,fecha:r.fecha,
-    producto:r.producto||"general",framework:r.framework||"",tipos:Array.isArray(r.tipos)?r.tipos:[],
+    producto:r.producto||"general",framework:r.framework||"",tipos:Array.isArray(r.tipos)?r.tipos:[],url:r.url||"",
     vistas:r.vistas||0,alcance:r.alcance||0,likes:r.likes||0,comentarios:r.comentarios||0,
     guardados:r.guardados||0,compartidos:r.compartidos||0,gastoAnuncio:r.gasto_anuncio||0,
     seguidoresGanados:r.seguidores_ganados||0,
@@ -389,7 +390,7 @@ function rowToContenido(r){
 }
 function contenidoToRow(o){
   return {id:o.id,titulo:o.titulo,tipo:o.tipo,canal:o.canal,pilar:o.pilar,estado:o.estado,fecha:o.fecha,
-    producto:o.producto||"general",framework:o.framework||null,tipos:o.tipos||[],
+    producto:o.producto||"general",framework:o.framework||null,tipos:o.tipos||[],url:o.url||null,
     vistas:o.vistas|0,alcance:o.alcance|0,likes:o.likes|0,comentarios:o.comentarios|0,
     guardados:o.guardados|0,compartidos:o.compartidos|0,gasto_anuncio:o.gastoAnuncio|0,
     seguidores_ganados:o.seguidoresGanados|0,
@@ -848,7 +849,10 @@ function filaContenido(c){
     <td class="tnum">${c.estado==="publicado"&&c.seguidoresGanados?"+"+kfmt(c.seguidoresGanados):'<span class="muted">—</span>'}</td>
     <td class="tnum" style="font-weight:600">${unidades(c)||0} u</td>
     <td>${estadoChip(c.estado)}</td>
-    <td><button class="iconbtn" data-open="${c.id}" title="Editar">${icon("config",15)}</button></td>
+    <td style="white-space:nowrap">
+      ${c.url?`<a class="iconbtn" href="${esc(c.url)}" target="_blank" rel="noopener" title="Ver el video" style="display:inline-grid;text-decoration:none">${icon("play",15)}</a>`:""}
+      <button class="iconbtn" data-open="${c.id}" title="Editar">${icon("config",15)}</button>
+    </td>
   </tr>`;
 }
 const THEAD_CONTENIDO=`<thead><tr><th>Contenido</th><th>${'Carpeta / tipo'}</th><th>Canal</th><th>Fecha</th><th>Vistas</th><th>Segs</th><th>Ventas</th><th>Estado</th><th></th></tr></thead>`;
@@ -1278,6 +1282,7 @@ Views.ads=()=>{
         <div style="flex:1;min-width:200px">
           <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
             <b style="font-size:14px">${esc(it.titulo)}</b>
+            ${it.url?`<a href="${esc(it.url)}" target="_blank" rel="noopener" title="Ver el video" style="color:var(--accent-ink);display:inline-flex">${icon("play",15)}</a>`:""}
             <span class="chip" style="background:color-mix(in srgb,${carp.color} 14%,transparent);color:${carp.color}">${carp.nombre}</span>
             ${tipoChips(it.tipos)}
           </div>
@@ -1414,6 +1419,10 @@ function contenidoModal(id){
     <div class="mh"><h3>${isNew?"Nueva pieza":"Editar pieza"}</h3><button class="iconbtn" data-action="closeModal">✕</button></div>
     <div class="mbody">
       <div class="field"><label>Título</label><input id="m_titulo" value="${esc(d.titulo||"")}" placeholder="Ej: Sarro del inodoro en 3 min"></div>
+      <div class="field">
+        <label>Link del video ${d.url?`<a href="${esc(d.url)}" target="_blank" rel="noopener" style="color:var(--accent-ink);text-decoration:none;font-weight:700">· abrir ↗</a>`:""}</label>
+        <input id="m_url" value="${esc(d.url||"")}" placeholder="https://www.instagram.com/reel/…" inputmode="url">
+      </div>
       <div class="f2">
         <div class="field"><label>Carpeta / producto</label><select id="m_producto">${CARPETAS.map(k=>opt(k.id,d.producto||"general",k.nombre)).join("")}</select></div>
         <div class="field"><label>Formato</label><select id="m_tipo">${Object.entries(TIPOS).map(([k,v])=>opt(k,d.tipo,v)).join("")}</select></div>
@@ -1578,6 +1587,7 @@ function saveContenido(id){
 
   const data={
     titulo:g("m_titulo").value.trim()||"Sin título",tipo:g("m_tipo").value,canal:g("m_canal").value,
+    url:g("m_url").value.trim(),
     producto:g("m_producto").value,framework:g("m_framework").value||"",tipos:[...(MODAL_TIPOS||[])],
     pilar:g("m_pilar").value,estado:g("m_estado").value,fecha:g("m_fecha").value,gastoAnuncio:gn("m_gasto"),
     vistas:gn("m_vistas"),alcance:gn("m_alcance"),likes:gn("m_likes"),comentarios:gn("m_comentarios"),
@@ -1666,6 +1676,9 @@ function go(v){current=v;document.getElementById("app").classList.remove("open")
    EVENTOS (delegación)
    ============================================================ */
 document.addEventListener("click",e=>{
+  // un link real (ej. "ver el video") navega y no dispara la fila que lo contiene.
+  // Los <a> del nav no tienen href, así que no entran acá.
+  if(e.target.closest("a[href]"))return;
   // click en el fondo del overlay (fuera del cuadro) cierra el modal; clicks adentro siguen su curso
   if(e.target.closest(".overlay")&&!e.target.closest(".modal")){closeModal();return;}
   const t=e.target.closest("[data-view],[data-action],[data-open],[data-savecont],[data-delcont],[data-editmeta],[data-delmeta],[data-savemeta],[data-met],[data-carpeta],[data-ads]");
