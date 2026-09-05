@@ -537,6 +537,10 @@ const ADS_CFG={
   refIntencion:0.02,  // 2% de (guardados+compartidos) sobre alcance
   refRetencion:1.0,   // vistas/alcance >= 1 significa que se revió
   refSeguidores:0.005,
+  // volumen desde el cual una pieza demuestra que puede viajar sola
+  alcanceConfiable:1500,
+  // techos de cordura: por encima de esto la tasa es medición rota, no récord
+  maxTasa:0.5, maxRetencion:4,
   minListo:60, minCandidato:40,
 };
 const ADS_ESTADOS={
@@ -560,16 +564,33 @@ function alcanceMinimo(){
   return Math.max(100,Math.min(ADS_CFG.alcanceMin,Math.round(mediana*0.6)));
 }
 
-/** Referencias del catálogo: el mejor de cada señal, con un piso absoluto para
- *  que un catálogo flojo no produzca un "100" inflado por comparación interna. */
-function adsRefs(){
-  const pub=publicados().filter(c=>c.metricasCargadas&&(c.alcance||0)>0);
-  const mx=(f)=>pub.reduce((m,c)=>Math.max(m,f(c)),0);
+/** ¿La pieza tiene volumen suficiente para que sus TASAS signifiquen algo?
+ *  Con 10 personas alcanzadas, 20 compartidos dan "200% de intención": ruido, no señal. */
+const esConfiable=it=>(it.alcance||0)>=alcanceMinimo();
+/** Tasas de una pieza, con techo sano: una tasa por encima de MAX_TASA es
+ *  medición rota (compartidos > alcance, por ejemplo), no un récord. */
+function adsTasas(it){
+  const a=it.alcance||0;
+  const cap=v=>Math.min(v,ADS_CFG.maxTasa);
   return {
-    conv:      Math.max(mx(c=>unidades(c)/c.alcance), ADS_CFG.refConv),
-    intencion: Math.max(mx(c=>((c.guardados||0)+(c.compartidos||0))/c.alcance), ADS_CFG.refIntencion),
-    retencion: Math.max(mx(c=>(c.vistas||0)/c.alcance), ADS_CFG.refRetencion),
-    seguidores:Math.max(mx(c=>(c.seguidoresGanados||0)/c.alcance), ADS_CFG.refSeguidores),
+    conv:      a?cap(unidades(it)/a):0,
+    intencion: a?cap(((it.guardados||0)+(it.compartidos||0))/a):0,
+    retencion: a?Math.min((it.vistas||0)/a,ADS_CFG.maxRetencion):0,
+    seguidores:a?cap((it.seguidoresGanados||0)/a):0,
+  };
+}
+
+/** Referencias del catálogo. CLAVE: solo miran piezas con volumen confiable.
+ *  Antes, una pieza de 10 de alcance con una tasa imposible se volvía el techo
+ *  y hundía a todas las demás. Una pieza rota ya no puede envenenar la escala. */
+function adsRefs(){
+  const pub=publicados().filter(c=>c.metricasCargadas&&(c.alcance||0)>0&&esConfiable(c));
+  const mx=(f)=>pub.reduce((m,c)=>Math.max(m,f(adsTasas(c))),0);
+  return {
+    conv:      Math.max(mx(t=>t.conv),      ADS_CFG.refConv),
+    intencion: Math.max(mx(t=>t.intencion), ADS_CFG.refIntencion),
+    retencion: Math.max(mx(t=>t.retencion), ADS_CFG.refRetencion),
+    seguidores:Math.max(mx(t=>t.seguidores),ADS_CFG.refSeguidores),
   };
 }
 
@@ -578,14 +599,17 @@ function adsRefs(){
 function adsEval(it,refs){
   refs=refs||adsRefs();
   const alcance=it.alcance||0, uni=unidades(it);
-  const conv=alcance?uni/alcance:0;
-  const intencion=alcance?((it.guardados||0)+(it.compartidos||0))/alcance:0;
-  const retencion=alcance?(it.vistas||0)/alcance:0;
-  const segRate=alcance?(it.seguidoresGanados||0)/alcance:0;
+  const T=adsTasas(it);
+  const conv=T.conv,intencion=T.intencion,retencion=T.retencion,segRate=T.seguidores;
   const n=(v,ref)=>Math.max(0,Math.min(1,ref?v/ref:0));
+  // VOLUMEN como señal propia: en pauta, una pieza que ya viajó sola demuestra
+  // que puede sostener entrega. Una tasa linda sobre 10 personas no demuestra nada.
+  const volumen=Math.max(0,Math.min(1,alcance/ADS_CFG.alcanceConfiable));
   const s={conv:n(conv,refs.conv),intencion:n(intencion,refs.intencion),
-           retencion:n(retencion,refs.retencion),seguidores:n(segRate,refs.seguidores)};
-  const score=Math.round(45*s.conv+25*s.intencion+15*s.retencion+15*s.seguidores);
+           retencion:n(retencion,refs.retencion),seguidores:n(segRate,refs.seguidores),volumen};
+  const confiable=esConfiable(it);
+  // sin volumen confiable el puntaje no se presenta como comparable
+  const score=confiable?Math.round(40*s.conv+20*s.intencion+20*s.retencion+10*s.seguidores+10*s.volumen):null;
 
   const tipos=it.tipos||[];
   const tieneVenta=tipos.includes("venta");
@@ -1306,18 +1330,18 @@ function gruposDeVersiones(){
 const METRICAS_CMP=[
   {l:"Alcance",            get:c=>c.alcance||0,                                   fmt:num},
   {l:"Vistas",             get:c=>c.vistas||0,                                    fmt:num},
-  {l:"Retención (vistas/alcance)",get:c=>c.alcance?c.vistas/c.alcance:0,          fmt:v=>v.toFixed(2)+"×"},
+  {l:"Retención (vistas/alcance)",get:c=>c.alcance?c.vistas/c.alcance:0,          fmt:v=>v.toFixed(2)+"×", tasa:true},
   {l:"Likes",              get:c=>c.likes||0,                                     fmt:num},
   {l:"Comentarios",        get:c=>c.comentarios||0,                               fmt:num},
   {l:"Guardados",          get:c=>c.guardados||0,                                 fmt:num},
   {l:"Compartidos",        get:c=>c.compartidos||0,                               fmt:num},
-  {l:"Intención (guard+comp / alcance)",get:c=>c.alcance?((c.guardados||0)+(c.compartidos||0))/c.alcance:0,fmt:v=>(v*100).toFixed(2)+"%"},
+  {l:"Intención (guard+comp / alcance)",get:c=>c.alcance?((c.guardados||0)+(c.compartidos||0))/c.alcance:0,fmt:v=>(v*100).toFixed(2)+"%", tasa:true},
   {l:"Seguidores que trajo",get:c=>c.seguidoresGanados||0,                        fmt:v=>"+"+num(v)},
   {l:"Unidades vendidas",  get:c=>unidades(c),                                    fmt:v=>v+" u", clave:true},
-  {l:"Conversión",         get:c=>c.alcance?unidades(c)/c.alcance:0,              fmt:v=>(v*100).toFixed(2)+"%", clave:true},
+  {l:"Conversión",         get:c=>c.alcance?unidades(c)/c.alcance:0,              fmt:v=>(v*100).toFixed(2)+"%", clave:true, tasa:true},
   {l:"Ingresos",           get:c=>ingresosItem(c),                                fmt:money},
-  {l:"Ingreso por 1.000 de alcance",get:c=>c.alcance?ingresosItem(c)/c.alcance*1000:0,fmt:money, clave:true},
-  {l:"Puntaje para pautar",get:c=>adsEval(c).score,                               fmt:v=>v+"/100", clave:true},
+  {l:"Ingreso por 1.000 de alcance",get:c=>c.alcance?ingresosItem(c)/c.alcance*1000:0,fmt:money, clave:true, tasa:true},
+  {l:"Puntaje para pautar",get:c=>adsEval(c).score,                               fmt:v=>v+"/100", clave:true, tasa:true},
 ];
 
 Views.comparar=()=>{
@@ -1350,20 +1374,27 @@ Views.comparar=()=>{
         <span class="chip" style="background:${st.bg};color:${st.c};margin-top:7px">${st.t}</span>
       </th>`;}).join("");
 
+    const conf=sel.map(esConfiable);
     const filas=METRICAS_CMP.map(m=>{
-      const vals=sel.map(c=>m.get(c));
-      const max=Math.max(...vals);
-      const hayDif=max>0&&vals.some(v=>v!==max);
+      // una tasa sobre poco alcance no se compara: se muestra s/d y no compite por ganar
+      const vals=sel.map((c,i)=>(m.tasa&&!conf[i])?null:m.get(c));
+      const validos=vals.filter(v=>v!==null);
+      const max=validos.length?Math.max(...validos):0;
+      const hayDif=max>0&&validos.some(v=>v!==max);
       return `<tr>
         <td style="font-weight:600;font-size:12.5px;${m.clave?"color:var(--text)":"color:var(--muted)"}">${m.l}${m.clave?' <span class="chip" style="background:var(--accent-soft);color:var(--accent-ink);font-size:9.5px">clave</span>':""}</td>
         ${vals.map(v=>{
+          if(v===null)return `<td class="muted" style="font-size:12px" title="Alcance insuficiente para leer esta tasa">s/d</td>`;
           const gana=max>0&&v===max&&hayDif;
           const dif=(max>0&&v!==max)?` <small class="muted">(${Math.round((v-max)/max*100)}%)</small>`:"";
           return `<td class="tnum" style="font-weight:${gana?"800":"600"};color:${gana?"var(--good)":"var(--text)"}">${m.fmt(v)}${gana?" ▲":dif}</td>`;
         }).join("")}
       </tr>`;}).join("");
 
-    tabla=`<div class="tablecard"><div class="wrap"><table class="dt">
+    const aviso=conf.includes(false)?`<div class="card pad" style="margin-bottom:12px;background:var(--warn-soft);border-color:var(--warn)">
+      <div style="font-size:12.5px;color:var(--warn)"><b>Ojo:</b> ${sel.filter((c,i)=>!conf[i]).map(c=>esc(c.titulo)).join(", ")} no llega${sel.filter((c,i)=>!conf[i]).length>1?"n":""} al alcance mínimo (${num(alcanceMinimo())}). Sus tasas salen s/d porque con tan poca gente cualquier porcentaje es ruido — los números absolutos sí se muestran.</div>
+    </div>`:"";
+    tabla=aviso+`<div class="tablecard"><div class="wrap"><table class="dt">
       <thead><tr><th style="min-width:190px">Métrica</th>${cab}</tr></thead>
       <tbody>${filas}</tbody></table></div></div>`;
 
@@ -1486,9 +1517,11 @@ Views.ads=()=>{
     <div style="display:flex;gap:13px;align-items:flex-start">
       <div style="flex:none;width:34px;height:34px;border-radius:10px;background:var(--info-soft);color:var(--info);display:grid;place-items:center">${icon("ads",18)}</div>
       <div style="font-size:12.5px;line-height:1.55">
-        <b>Cómo decide:</b> el puntaje pesa conversión (45%), intención — guardados y compartidos (25%), retención (15%) y seguidores (15%).
-        Pero el puntaje solo no alcanza: <b>una pieza sin estructura de venta nunca se recomienda para pautar</b>, por más alcance que tenga.
-        Un reel de tendencia puede volar y traer seguidores sin mostrar el dolor que hace comprar — pautarlo es quemar presupuesto.
+        <b>Cómo decide:</b> conversión (40%), retención (20%), intención — guardados y compartidos (20%), volumen alcanzado (10%) y seguidores (10%).
+        Tres reglas mandan por encima del puntaje:
+        <b>1)</b> una pieza sin estructura de venta nunca se recomienda pautar, por más alcance que tenga — un reel de tendencia vuela y trae seguidores sin mostrar el dolor que hace comprar.
+        <b>2)</b> por debajo del alcance mínimo no se puntúa: con poca gente cualquier porcentaje es ruido, y si vos mismo compartís la pieza, la inflás sin querer.
+        <b>3)</b> esas piezas tampoco entran a fijar la vara con la que se miden las demás, así que una medición rota no puede hundir al resto.
       </div>
     </div>
   </div>
