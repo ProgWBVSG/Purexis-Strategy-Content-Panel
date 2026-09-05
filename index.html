@@ -194,6 +194,12 @@ table.dt tbody tr:hover{background:var(--surface-2)}
 .seg button{border:none;background:transparent;color:var(--muted);font-weight:600;font-size:12.5px;padding:7px 14px;border-radius:8px}
 .seg button.on{background:var(--surface);color:var(--text);box-shadow:var(--shadow-sm)}
 
+/* panel de resultados de la búsqueda inteligente */
+.sr-panel{position:absolute;top:calc(100% + 8px);left:0;right:0;z-index:40;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);max-height:min(60vh,420px);overflow-y:auto;padding:6px}
+.sr-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;border:none;padding:9px 10px;border-radius:9px;color:var(--text);cursor:pointer}
+.sr-item:hover,.sr-item:focus-visible{background:var(--surface-2);outline:none}
+.tipochip{cursor:pointer;transition:background .15s,border-color .15s,color .15s}
+
 .empty{text-align:center;color:var(--muted);padding:40px 20px}
 .empty svg{color:var(--muted-2);margin-bottom:10px}
 
@@ -260,8 +266,9 @@ table.dt tbody tr:hover{background:var(--surface-2)}
       <h1 id="pageTitle">Resumen</h1>
       <div class="search">
         <span class="ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></span>
-        <input id="globalSearch" placeholder="Buscar contenido, metas, productos…">
+        <input id="globalSearch" placeholder="Buscar: moho, venta, sin métricas…" autocomplete="off">
         <span class="ai">IA</span>
+        <div id="searchResults" class="sr-panel" hidden></div>
       </div>
       <button class="tb-btn" data-action="toggleTheme" aria-label="Tema" id="themeBtn"></button>
       <button class="tb-btn" data-view="recordatorios" aria-label="Recordatorios" id="bellBtn">
@@ -307,6 +314,31 @@ const ESTADOS = {
 };
 const TIPOS={reel:"Reel",carrusel:"Carrusel",historia:"Historia"};
 
+/* ---------- carpetas: una pieza, un producto (Regla 2 del sistema de guiones) ---------- */
+const CARPETAS=[
+  ...PRODUCTOS.map(p=>({id:p.id,nombre:p.nombre,color:p.color})),
+  {id:"combo",   nombre:"Combo / Varios", color:"#8B5CF6"},
+  {id:"general", nombre:"General de marca", color:"#64748B"},
+];
+const CMAP=Object.fromEntries(CARPETAS.map(c=>[c.id,c]));
+
+/* ---------- frameworks narrativos (sistema de guiones de Purexis) ---------- */
+/* `venta:true` = la estructura en sí empuja a la compra; se usa para sugerir el tipo. */
+const FRAMEWORKS={
+  pas:            {t:"PAS · Problema-Agitación-Solución", venta:true,  dur:"15-25 s"},
+  before_after:   {t:"Before / After · Transformación",   venta:true,  dur:"20-30 s"},
+  tres_razones:   {t:"3 Razones",                          venta:true,  dur:"25-35 s"},
+  desmitificando: {t:"Desmitificando trucos caseros",      venta:false, dur:"30-45 s"},
+  fundador:       {t:"Fundador / Origen",                  venta:false, dur:"30-45 s"},
+};
+
+/* ---------- intención comercial del reel (eje distinto al framework) ---------- */
+const TIPOS_REEL={
+  venta:     {t:"Venta",     c:"var(--good)", bg:"var(--good-soft)", d:"Muestra el dolor y empuja a comprar"},
+  valor:     {t:"Valor",     c:"var(--info)", bg:"var(--info-soft)", d:"Enseña algo útil, construye autoridad"},
+  tendencia: {t:"Tendencia", c:"var(--rust)", bg:"var(--rust-soft)", d:"Surfea algo de moda. Suele traer alcance, no ventas"},
+};
+
 /* ---------- iconos nav ---------- */
 const IC={
   resumen:'<path d="M3 13h8V3H3zM13 21h8V3h-8zM3 21h8v-6H3z"/>',
@@ -316,10 +348,11 @@ const IC={
   metricas:'<path d="M3 3v18h18"/><rect x="7" y="11" width="3" height="6"/><rect x="12" y="7" width="3" height="10"/><rect x="17" y="13" width="3" height="4"/>',
   reportes:'<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
   recordatorios:'<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+  ads:'<path d="m3 11 18-5v12L3 13v-2z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
   config:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
 };
 const NAV=[
-  ["resumen","Resumen"],["contenido","Contenido"],["metas","Metas"],
+  ["resumen","Resumen"],["contenido","Contenido"],["ads","Meta Ads"],["metas","Metas"],
   ["productos","Productos"],["metricas","Métricas"],["reportes","Reportes"],["recordatorios","Recordatorios"],
 ];
 
@@ -346,16 +379,22 @@ function hydrate(){
 // mapeo fila Postgres (snake_case) <-> objeto JS (camelCase)
 function rowToContenido(r){
   return {id:r.id,titulo:r.titulo,tipo:r.tipo,canal:r.canal,pilar:r.pilar,estado:r.estado,fecha:r.fecha,
+    producto:r.producto||"general",framework:r.framework||"",tipos:Array.isArray(r.tipos)?r.tipos:[],
     vistas:r.vistas||0,alcance:r.alcance||0,likes:r.likes||0,comentarios:r.comentarios||0,
     guardados:r.guardados||0,compartidos:r.compartidos||0,gastoAnuncio:r.gasto_anuncio||0,
+    seguidoresGanados:r.seguidores_ganados||0,
     ventas:{sarro:r.v_sarro||0,moho:r.v_moho||0,oxido:r.v_oxido||0,vidrios:r.v_vidrios||0},
+    preciosSnapshot:r.precios_snapshot||{},adsEstado:r.ads_estado||null,
     metricasCargadas:!!r.metricas_cargadas,notas:r.notas||"",creado:r.creado};
 }
 function contenidoToRow(o){
   return {id:o.id,titulo:o.titulo,tipo:o.tipo,canal:o.canal,pilar:o.pilar,estado:o.estado,fecha:o.fecha,
+    producto:o.producto||"general",framework:o.framework||null,tipos:o.tipos||[],
     vistas:o.vistas|0,alcance:o.alcance|0,likes:o.likes|0,comentarios:o.comentarios|0,
     guardados:o.guardados|0,compartidos:o.compartidos|0,gasto_anuncio:o.gastoAnuncio|0,
+    seguidores_ganados:o.seguidoresGanados|0,
     v_sarro:o.ventas.sarro|0,v_moho:o.ventas.moho|0,v_oxido:o.ventas.oxido|0,v_vidrios:o.ventas.vidrios|0,
+    precios_snapshot:o.preciosSnapshot||{},ads_estado:o.adsEstado||null,
     metricas_cargadas:!!o.metricasCargadas,notas:o.notas||"",creado:o.creado||new Date().toISOString()};
 }
 function rowToMeta(r){return {id:r.id,titulo:r.titulo,tipo:r.tipo,metrica:r.metrica,objetivo:r.objetivo||0,actual:r.actual||0,fechaLimite:r.fecha_limite,unidad:r.unidad||""};}
@@ -449,11 +488,141 @@ function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","
 
 /* cálculos */
 const unidades=it=>PRODUCTOS.reduce((s,p)=>s+(it.ventas?.[p.id]||0),0);
-const ingresosItem=it=>PRODUCTOS.reduce((s,p)=>s+(it.ventas?.[p.id]||0)*p.precio,0);
+/** Precio unitario CONGELADO: el que tenía el producto cuando se registró esa venta.
+ *  Si Mercado Libre sube o baja después, los ingresos históricos no se recalculan.
+ *  Sin snapshot (piezas viejas) cae al precio actual. */
+function precioDe(it,pid){
+  const snap=it&&it.preciosSnapshot?it.preciosSnapshot[pid]:null;
+  if(snap!=null&&!isNaN(snap))return Number(snap);
+  return PMAP[pid]?PMAP[pid].precio:0;
+}
+const ingresosItem=it=>PRODUCTOS.reduce((s,p)=>s+(it.ventas?.[p.id]||0)*precioDe(it,p.id),0);
+/** true si la pieza tiene al menos un precio congelado (venta ya registrada) */
+const tienePrecioCongelado=it=>!!(it&&it.preciosSnapshot&&Object.keys(it.preciosSnapshot).length);
 const publicados=()=>state.contenido.filter(c=>c.estado==="publicado");
 function productTotals(items){const t={};PRODUCTOS.forEach(p=>t[p.id]=0);(items||state.contenido).forEach(it=>PRODUCTOS.forEach(p=>t[p.id]+=(it.ventas?.[p.id]||0)));return t;}
 function totIngresos(items){return (items||state.contenido).reduce((s,it)=>s+ingresosItem(it),0);}
 function totUnidades(items){return (items||state.contenido).reduce((s,it)=>s+unidades(it),0);}
+const totSeguidoresGanados=items=>(items||state.contenido).reduce((s,it)=>s+(it.seguidoresGanados||0),0);
+
+/* ============================================================
+   MOTOR DE DECISIÓN PARA META ADS
+   ------------------------------------------------------------
+   El problema que resuelve: un reel de TENDENCIA puede volar en
+   alcance y seguidores y parecer el mejor candidato a publicitar,
+   pero no vende — porque no muestra el dolor ni empuja a comprar.
+   Un ranking por alcance te haría quemar presupuesto ahí.
+
+   Por eso el motor separa dos cosas:
+   1. RENDIMIENTO  — qué tan bien performó (señales ponderadas).
+   2. ESTRUCTURA   — si la pieza está construida para vender.
+   La plata solo se recomienda cuando las DOS dan bien.
+   ============================================================ */
+const ADS_CFG={
+  alcanceMin:1000,    // por debajo de esto la muestra no es concluyente
+  // Piso de "excelente" en conversión: 0,8 ventas por cada 1.000 de alcance (0,08%).
+  // Calibrado para venta directa desde Instagram a un producto de ticket medio-alto:
+  // pedir 0,2% haría que hasta un reel que factura cientos de miles parezca flojo.
+  refConv:0.0008,
+  refIntencion:0.02,  // 2% de (guardados+compartidos) sobre alcance
+  refRetencion:1.0,   // vistas/alcance >= 1 significa que se revió
+  refSeguidores:0.005,
+  minListo:60, minCandidato:40,
+};
+const ADS_ESTADOS={
+  listo:      {t:"Listo para anunciar", c:"var(--good)", bg:"var(--good-soft)", orden:1},
+  candidato:  {t:"Candidato",           c:"var(--warn)", bg:"var(--warn-soft)", orden:2},
+  marca:      {t:"Sirve para marca",    c:"var(--info)", bg:"var(--info-soft)", orden:3},
+  anunciando: {t:"Anunciando",          c:"var(--accent-ink)", bg:"var(--accent-soft)", orden:0},
+  anunciado:  {t:"Ya anunciado",        c:"var(--muted)", bg:"var(--surface-3)", orden:5},
+  insuficiente:{t:"Sin datos",          c:"var(--muted-2)", bg:"var(--surface-3)", orden:6},
+  no:         {t:"No recomendado",      c:"var(--bad)", bg:"var(--bad-soft)", orden:4},
+  descartado: {t:"Descartado",          c:"var(--muted-2)", bg:"var(--surface-3)", orden:7},
+};
+
+/** Referencias del catálogo: el mejor de cada señal, con un piso absoluto para
+ *  que un catálogo flojo no produzca un "100" inflado por comparación interna. */
+function adsRefs(){
+  const pub=publicados().filter(c=>c.metricasCargadas&&(c.alcance||0)>0);
+  const mx=(f)=>pub.reduce((m,c)=>Math.max(m,f(c)),0);
+  return {
+    conv:      Math.max(mx(c=>unidades(c)/c.alcance), ADS_CFG.refConv),
+    intencion: Math.max(mx(c=>((c.guardados||0)+(c.compartidos||0))/c.alcance), ADS_CFG.refIntencion),
+    retencion: Math.max(mx(c=>(c.vistas||0)/c.alcance), ADS_CFG.refRetencion),
+    seguidores:Math.max(mx(c=>(c.seguidoresGanados||0)/c.alcance), ADS_CFG.refSeguidores),
+  };
+}
+
+/** Evalúa una pieza. Devuelve score, estado y — lo más importante — el motivo
+ *  en palabras, para que la decisión sea auditable y no un número mágico. */
+function adsEval(it,refs){
+  refs=refs||adsRefs();
+  const alcance=it.alcance||0, uni=unidades(it);
+  const conv=alcance?uni/alcance:0;
+  const intencion=alcance?((it.guardados||0)+(it.compartidos||0))/alcance:0;
+  const retencion=alcance?(it.vistas||0)/alcance:0;
+  const segRate=alcance?(it.seguidoresGanados||0)/alcance:0;
+  const n=(v,ref)=>Math.max(0,Math.min(1,ref?v/ref:0));
+  const s={conv:n(conv,refs.conv),intencion:n(intencion,refs.intencion),
+           retencion:n(retencion,refs.retencion),seguidores:n(segRate,refs.seguidores)};
+  const score=Math.round(45*s.conv+25*s.intencion+15*s.retencion+15*s.seguidores);
+
+  const tipos=it.tipos||[];
+  const tieneVenta=tipos.includes("venta");
+  const soloTendencia=tipos.includes("tendencia")&&!tieneVenta;
+  // ingreso orgánico por cada 1000 de alcance: comparable directo contra el CPM de Meta
+  const rpm=alcance?ingresosItem(it)/alcance*1000:0;
+
+  let estado,motivo;
+  if(it.adsEstado){                       // decisión manual: manda sobre el automático
+    estado=it.adsEstado;
+    motivo=estado==="anunciando"?"Lo marcaste como en campaña activa."
+      :estado==="anunciado"?"Ya lo anunciaste."
+      :"Lo descartaste a mano.";
+  }else if(it.estado!=="publicado"){
+    estado="insuficiente";motivo="Todavía no está publicado.";
+  }else if(!it.metricasCargadas){
+    estado="insuficiente";motivo="Faltan cargar las métricas de esta pieza.";
+  }else if(alcance<ADS_CFG.alcanceMin){
+    estado="insuficiente";motivo=`Solo ${num(alcance)} de alcance: muy poco para concluir algo (mínimo ${num(ADS_CFG.alcanceMin)}).`;
+  }else if(!tipos.length){
+    estado="insuficiente";motivo="Marcá si es de venta, valor o tendencia para poder evaluarla.";
+  }else if(soloTendencia){
+    estado="marca";
+    motivo=uni>0
+      ? `Es tendencia pura y aun así vendió ${uni} u. Ojo: el alcance vino de la moda, no del dolor — al pautarla es probable que no repita. Si la querés usar, primero remontala con estructura de venta.`
+      : `Buen alcance${it.seguidoresGanados?` y trajo ${num(it.seguidoresGanados)} seguidores`:""}, pero es tendencia pura y no vendió. Sirve para marca, no para pautar.`;
+  }else if(!tieneVenta){
+    estado="marca";
+    motivo=`Aporta valor y construye autoridad, pero no tiene estructura de venta. Para pautar conviene una versión con PAS o Before/After.`;
+  }else if(uni===0){
+    estado="candidato";
+    motivo="Tiene estructura de venta pero todavía no vendió nada en orgánico. Esperá a que madure antes de ponerle plata.";
+  }else if(score>=ADS_CFG.minListo){
+    estado="listo";
+    motivo=`Vendió ${uni} u con ${num(alcance)} de alcance y genera ${money(rpm)} por cada 1.000 de alcance orgánico. Si tu CPM en Meta es menor a eso, la pauta da ganancia.`;
+  }else if(score>=ADS_CFG.minCandidato){
+    estado="candidato";
+    // el motivo enuncia el número concreto en vez de afirmar comparaciones que pueden ser falsas
+    const flojo=s.conv<0.5
+        ?`convierte ${(conv*1000).toFixed(1)} ventas por cada 1.000 de alcance y para que la pauta cierre conviene desde ${(refs.conv*1000).toFixed(1)}`
+      :s.intencion<0.5?"le faltan guardados y compartidos, que es la señal de que hay intención de compra"
+      :"el alcance todavía es chico para confirmarlo";
+    motivo=`Vendió ${uni} u, pero ${flojo}. Mirala de nuevo en unos días.`;
+  }else{
+    estado="no";
+    motivo=`Vendió ${uni} u pero las señales están flojas frente al resto de tu contenido. No conviene pautarla.`;
+  }
+  return {score,estado,motivo,señales:s,conv,intencion,retencion,segRate,rpm,uni,tieneVenta};
+}
+
+/** Todas las piezas evaluadas y ordenadas: primero lo accionable, después el resto. */
+function adsRanking(){
+  const refs=adsRefs();
+  return state.contenido.map(it=>({it,ev:adsEval(it,refs)}))
+    .sort((a,b)=>(ADS_ESTADOS[a.ev.estado]?.orden??9)-(ADS_ESTADOS[b.ev.estado]?.orden??9)||b.ev.score-a.ev.score);
+}
+
 function metaActual(m){
   if(m.metrica==="unidades")return totUnidades();
   if(m.metrica==="ingresos")return totIngresos();
@@ -627,7 +796,7 @@ Views.resumen=()=>{
     <div class="stat">
       <div class="top"><span class="lab">Seguidores</span><span class="ib" style="background:var(--info-soft);color:var(--info)">${icon("recordatorios",16)}</span></div>
       <div class="val tnum">${num(seg)}</div>
-      <div class="delta ${segGrow>=0?"up":"down"}">${segGrow>=0?"▲":"▼"} ${segGrow.toFixed(1)}% <small>desde el inicio</small></div>
+      <div class="delta ${segGrow>=0?"up":"down"}">${segGrow>=0?"▲":"▼"} ${segGrow.toFixed(1)}% <small>desde el inicio${totSeguidoresGanados()?` · +${num(totSeguidoresGanados())} atribuidos a contenido`:""}</small></div>
     </div>
   </div>
 
@@ -664,31 +833,68 @@ Views.resumen=()=>{
 };
 function bestSeller(){const pt=productTotals();let b=PRODUCTOS[0],mx=-1;PRODUCTOS.forEach(p=>{if(pt[p.id]>mx){mx=pt[p.id];b=p;}});return mx>0?b.nombre:"—";}
 
-/* ---------- CONTENIDO ---------- */
-let contFilter={estado:"todos",canal:"todos"};
+/* ---------- CONTENIDO (carpetas por producto) ---------- */
+let contFilter={estado:"todos",canal:"todos",carpeta:"todas"};
+
+/** Fila de la tabla de contenido, reutilizada dentro de cada carpeta. */
+function filaContenido(c){
+  const carp=CMAP[c.producto]||CMAP.general;
+  return `<tr data-open="${c.id}" style="cursor:pointer">
+    <td><div class="ct-name">${tipoIcon(c.tipo)}<div><b>${esc(c.titulo)}</b><small>${TIPOS[c.tipo]} · ${esc(c.pilar||"—")}${c.framework&&FRAMEWORKS[c.framework]?" · "+FRAMEWORKS[c.framework].t.split(" ·")[0]:""}</small></div></div></td>
+    <td>${contFilter.carpeta==="todas"?`<span class="chip" style="background:color-mix(in srgb,${carp.color} 14%,transparent);color:${carp.color}">${carp.nombre}</span>`:tipoChips(c.tipos)}</td>
+    <td>${canalChip(c.canal)}</td>
+    <td class="tnum muted" style="font-size:12.5px">${fdate(c.fecha)}</td>
+    <td class="tnum">${c.estado==="publicado"?kfmt(c.vistas):'<span class="muted">—</span>'}</td>
+    <td class="tnum">${c.estado==="publicado"&&c.seguidoresGanados?"+"+kfmt(c.seguidoresGanados):'<span class="muted">—</span>'}</td>
+    <td class="tnum" style="font-weight:600">${unidades(c)||0} u</td>
+    <td>${estadoChip(c.estado)}</td>
+    <td><button class="iconbtn" data-open="${c.id}" title="Editar">${icon("config",15)}</button></td>
+  </tr>`;
+}
+const THEAD_CONTENIDO=`<thead><tr><th>Contenido</th><th>${'Carpeta / tipo'}</th><th>Canal</th><th>Fecha</th><th>Vistas</th><th>Segs</th><th>Ventas</th><th>Estado</th><th></th></tr></thead>`;
+
 Views.contenido=()=>{
   let items=[...state.contenido];
   if(contFilter.estado!=="todos")items=items.filter(c=>c.estado===contFilter.estado);
   if(contFilter.canal!=="todos")items=items.filter(c=>c.canal===contFilter.canal);
+  if(contFilter.carpeta!=="todas")items=items.filter(c=>(c.producto||"general")===contFilter.carpeta);
   items.sort((a,b)=>pd(b.fecha)-pd(a.fecha));
 
   const estadoOpts=`<option value="todos">Todos los estados</option>`+Object.entries(ESTADOS).map(([k,v])=>`<option value="${k}" ${contFilter.estado===k?"selected":""}>${v.t}</option>`).join("");
-  const counts=Object.keys(ESTADOS).reduce((a,k)=>{a[k]=state.contenido.filter(c=>c.estado===k).length;return a;},{});
 
-  const rows=items.map(c=>`<tr data-open="${c.id}" style="cursor:pointer">
-    <td><div class="ct-name">${tipoIcon(c.tipo)}<div><b>${esc(c.titulo)} ${exampleTag(c)}</b><small>${TIPOS[c.tipo]} · ${esc(c.pilar||"—")}</small></div></div></td>
-    <td>${canalChip(c.canal)}</td>
-    <td class="tnum muted" style="font-size:12.5px">${fdate(c.fecha)}</td>
-    <td class="tnum">${c.estado==="publicado"?kfmt(c.vistas):'<span class="muted">—</span>'}</td>
-    <td class="tnum">${c.estado==="publicado"?kfmt(c.guardados)+"·"+kfmt(c.compartidos):'<span class="muted">—</span>'}</td>
-    <td class="tnum" style="font-weight:600">${unidades(c)||0} u</td>
-    <td>${estadoChip(c.estado)}</td>
-    <td><button class="iconbtn" data-open="${c.id}" title="Editar">${icon("config",15)}</button></td>
-  </tr>`).join("");
+  // tarjetas de carpeta: cuántas piezas y cuántas unidades vendió cada producto
+  const enCarpeta=(id)=>state.contenido.filter(c=>(c.producto||"general")===id);
+  const folders=CARPETAS.map(k=>{
+    const arr=enCarpeta(k.id), u=arr.reduce((s,c)=>s+unidades(c),0);
+    const on=contFilter.carpeta===k.id;
+    return `<button class="card pad" data-carpeta="${k.id}" style="text-align:left;cursor:pointer;border-color:${on?k.color:"var(--border)"};background:${on?`color-mix(in srgb,${k.color} 8%,var(--surface))`:"var(--surface)"};padding:13px 15px">
+      <div style="display:flex;align-items:center;gap:9px">
+        <span style="width:9px;height:9px;border-radius:3px;background:${k.color};flex:none"></span>
+        <b style="font-size:13px">${k.nombre}</b>
+      </div>
+      <div class="muted" style="font-size:11.5px;margin-top:6px">${arr.length} pieza${arr.length!==1?"s":""}${u?` · <b style="color:var(--text)">${u} u vendidas</b>`:""}</div>
+    </button>`;
+  }).join("");
+
+  const todas=contFilter.carpeta==="todas";
+  let cuerpo="";
+  if(todas){
+    // agrupado por carpeta, para que se vea como carpetas de verdad
+    const grupos=CARPETAS.map(k=>({k,arr:items.filter(c=>(c.producto||"general")===k.id)})).filter(g=>g.arr.length);
+    cuerpo=grupos.map(g=>`
+      <tr><td colspan="9" style="padding:0"><div class="grouprow">
+        <span style="width:8px;height:8px;border-radius:2px;background:${g.k.color};display:inline-block"></span>
+        <span>${g.k.nombre}</span><span class="gt">(${g.arr.length})</span><span class="sp"></span>
+        <span class="tot">Ventas <b class="tnum">${g.arr.reduce((s,c)=>s+unidades(c),0)} u</b></span>
+      </div></td></tr>
+      ${g.arr.map(filaContenido).join("")}`).join("");
+  }else{
+    cuerpo=items.map(filaContenido).join("");
+  }
 
   return `
   <div class="section-h">
-    <div><div class="eyebrow">Organización</div><h2 style="font-size:19px">Carpeta de contenido</h2></div>
+    <div><div class="eyebrow">Organización</div><h2 style="font-size:19px">Carpetas de contenido</h2></div>
     <span class="sp"></span>
     <select class="btn sm" id="fCanal" style="padding-right:26px">
       <option value="todos" ${contFilter.canal==="todos"?"selected":""}>Todos los canales</option>
@@ -699,15 +905,20 @@ Views.contenido=()=>{
     <button class="btn sm pri" data-action="newContenido">+ Nueva pieza</button>
   </div>
 
-  <div class="kpi4" style="margin-bottom:18px">
-    ${["idea","guion","grabado","programado"].map(k=>`<div class="kpi"><div class="l">${ESTADOS[k].t}</div><div class="v tnum" style="color:${ESTADOS[k].c}">${counts[k]||0}</div></div>`).join("")}
+  <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(190px,1fr));margin-bottom:8px">
+    <button class="card pad" data-carpeta="todas" style="text-align:left;cursor:pointer;border-color:${todas?"var(--accent)":"var(--border)"};background:${todas?"var(--accent-soft)":"var(--surface)"};padding:13px 15px">
+      <div style="display:flex;align-items:center;gap:9px">${icon("contenido",15)}<b style="font-size:13px">Todas</b></div>
+      <div class="muted" style="font-size:11.5px;margin-top:6px">${state.contenido.length} pieza${state.contenido.length!==1?"s":""} en total</div>
+    </button>
+    ${folders}
   </div>
+  <p class="muted" style="font-size:11.5px;margin:0 0 16px">Cada pieza vive en una sola carpeta — un guion, un producto. Cambiá la carpeta desde la pieza y se mueve sola.</p>
 
   <div class="tablecard">
-    <div class="th"><h2>${items.length} pieza${items.length!==1?"s":""}</h2><span class="sp"></span><span class="muted" style="font-size:12px">Tocá una fila para editar métricas y ventas</span></div>
+    <div class="th"><h2>${items.length} pieza${items.length!==1?"s":""}${todas?"":` en ${CMAP[contFilter.carpeta]?.nombre||""}`}</h2><span class="sp"></span><span class="muted" style="font-size:12px">Tocá una fila para editar métricas y ventas</span></div>
     <div class="wrap"><table class="dt">
-      <thead><tr><th>Contenido</th><th>Canal</th><th>Fecha</th><th>Vistas</th><th>Guard·Comp</th><th>Ventas</th><th>Estado</th><th></th></tr></thead>
-      <tbody>${rows||`<tr><td colspan="8"><div class="empty">${icon("contenido",30)}<div>No hay piezas con ese filtro.</div></div></td></tr>`}</tbody>
+      ${THEAD_CONTENIDO}
+      <tbody>${cuerpo||`<tr><td colspan="9"><div class="empty">${icon("contenido",30)}<div>No hay piezas con ese filtro.</div></div></td></tr>`}</tbody>
     </table></div>
   </div>`;
 };
@@ -956,6 +1167,186 @@ Views.recordatorios=()=>{
   ${r.metas.length?`<div class="section-h" style="margin-top:22px"><h2>Metas por vencer</h2><span class="chip" style="background:var(--surface-3);color:var(--muted)">${r.metas.length}</span></div>`+r.metas.map(o=>`<div class="card pad" style="display:flex;align-items:center;gap:13px;margin-bottom:10px"><div style="flex:none;width:38px;height:38px;border-radius:11px;background:var(--accent-soft);color:var(--accent-ink);display:grid;place-items:center">${icon("metas",18)}</div><div style="flex:1"><b style="font-size:13.5px">${esc(o.m.titulo)}</b><div class="muted" style="font-size:12px">Vence el ${fdatel(o.m.fechaLimite)} · vas ${Math.round(o.pct)}%</div></div><span class="chip" style="background:var(--warn-soft);color:var(--warn)">Faltan ${o.dias}d</span><button class="btn sm" data-view="metas">Ver</button></div>`).join(""):""}`;
 };
 
+/* ============================================================
+   BÚSQUEDA INTELIGENTE
+   Entiende nombres de producto, tipos de reel, frameworks, estados,
+   canal y atajos ("sin metricas", "listo", "vendio") además del
+   texto libre del título y las notas. Puntúa y ordena por relevancia.
+   ============================================================ */
+const normaliza=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+/** Sinónimos -> qué campo y valor matchean. Es lo que la hace "entender". */
+const ATAJOS=[
+  {kw:["sarro","quitasarro"],       campo:"producto", val:"sarro"},
+  {kw:["moho","hongo","humedad"],   campo:"producto", val:"moho"},
+  {kw:["oxido","oxidado","herrumbre"],campo:"producto",val:"oxido"},
+  {kw:["vidrio","vidrios","ventana"],campo:"producto",val:"vidrios"},
+  {kw:["combo","varios"],           campo:"producto", val:"combo"},
+  {kw:["venta","vende","vendedor"], campo:"tipo",     val:"venta"},
+  {kw:["valor","educativo"],        campo:"tipo",     val:"valor"},
+  {kw:["tendencia","trend","moda"], campo:"tipo",     val:"tendencia"},
+  {kw:["anuncio","pauta","pago","ads"],campo:"canal", val:"anuncio"},
+  {kw:["organico"],                 campo:"canal",    val:"organico"},
+  {kw:["publicado"],                campo:"estado",   val:"publicado"},
+  {kw:["idea","ideas"],             campo:"estado",   val:"idea"},
+  {kw:["guion","guiones"],          campo:"estado",   val:"guion"},
+  {kw:["grabado"],                  campo:"estado",   val:"grabado"},
+  {kw:["programado"],               campo:"estado",   val:"programado"},
+  {kw:["pas"],                      campo:"framework",val:"pas"},
+  {kw:["before","after","antes","despues","transformacion"],campo:"framework",val:"before_after"},
+  {kw:["razones"],                  campo:"framework",val:"tres_razones"},
+  {kw:["desmitificando","truco","trucos","casero"],campo:"framework",val:"desmitificando"},
+  {kw:["fundador","origen","historia"],campo:"framework",val:"fundador"},
+];
+function buscar(q){
+  const raw=normaliza(q).trim();
+  if(!raw)return {contenido:[],metas:[],q:""};
+  const tokens=raw.split(/\s+/).filter(Boolean);
+  // atajos especiales que no son campo=valor
+  const pideSinMetricas=/sin metrica|falta metrica|pendiente/.test(raw);
+  const pideVendio=/vendio|vendidos|con venta/.test(raw);
+  const pideListo=/listo|para anunciar|pautar/.test(raw);
+  const refs=adsRefs();
+
+  const res=state.contenido.map(c=>{
+    let sc=0;const razones=[];
+    const texto=normaliza(`${c.titulo} ${c.notas||""} ${c.pilar||""}`);
+    tokens.forEach(t=>{
+      if(texto.includes(t))sc+=t.length>=4?6:3;
+      ATAJOS.forEach(a=>{
+        if(!a.kw.includes(t))return;
+        if(a.campo==="producto"&&(c.producto||"general")===a.val){sc+=8;razones.push(CMAP[a.val]?.nombre);}
+        if(a.campo==="tipo"&&(c.tipos||[]).includes(a.val)){sc+=7;razones.push(TIPOS_REEL[a.val].t);}
+        if(a.campo==="canal"&&c.canal===a.val){sc+=6;razones.push(a.val==="anuncio"?"Anuncio":"Orgánico");}
+        if(a.campo==="estado"&&c.estado===a.val){sc+=6;razones.push(ESTADOS[a.val]?.t);}
+        if(a.campo==="framework"&&c.framework===a.val){sc+=7;razones.push(FRAMEWORKS[a.val]?.t.split(" ·")[0]);}
+      });
+    });
+    if(pideSinMetricas&&c.estado==="publicado"&&!c.metricasCargadas){sc+=10;razones.push("sin métricas");}
+    if(pideVendio&&unidades(c)>0){sc+=10;razones.push(`${unidades(c)} u vendidas`);}
+    if(pideListo&&adsEval(c,refs).estado==="listo"){sc+=12;razones.push("listo para anunciar");}
+    return {c,sc,razones:[...new Set(razones.filter(Boolean))]};
+  }).filter(r=>r.sc>0).sort((a,b)=>b.sc-a.sc).slice(0,12);
+
+  const metas=state.metas.filter(m=>tokens.some(t=>normaliza(m.titulo).includes(t))).slice(0,4);
+  return {contenido:res,metas,q};
+}
+function renderBusqueda(q){
+  const box=document.getElementById("searchResults");if(!box)return;
+  const {contenido,metas}=buscar(q);
+  if(!q.trim()){box.hidden=true;box.innerHTML="";return;}
+  if(!contenido.length&&!metas.length){
+    box.hidden=false;
+    box.innerHTML=`<div class="muted" style="padding:16px;font-size:12.5px">Nada para “${esc(q)}”. Probá con un producto (moho, sarro), un tipo (venta, tendencia) o “sin métricas”.</div>`;
+    return;
+  }
+  box.hidden=false;
+  box.innerHTML=`
+    ${contenido.map(({c,razones})=>{
+      const carp=CMAP[c.producto]||CMAP.general;
+      return `<button class="sr-item" data-open="${c.id}">
+        <span style="width:8px;height:8px;border-radius:2px;background:${carp.color};flex:none"></span>
+        <span style="flex:1;min-width:0">
+          <b style="display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.titulo)}</b>
+          <small class="muted" style="font-size:11px">${carp.nombre} · ${fdate(c.fecha)}${razones.length?" · "+razones.slice(0,3).join(" · "):""}</small>
+        </span>
+        ${unidades(c)?`<span class="chip" style="background:var(--good-soft);color:var(--good)">${unidades(c)} u</span>`:""}
+        ${estadoChip(c.estado)}
+      </button>`;}).join("")}
+    ${metas.map(m=>`<button class="sr-item" data-view="metas">
+        <span style="width:8px;height:8px;border-radius:2px;background:var(--accent);flex:none"></span>
+        <span style="flex:1"><b style="display:block;font-size:13px">${esc(m.titulo)}</b><small class="muted" style="font-size:11px">Meta</small></span>
+      </button>`).join("")}`;
+}
+
+/* ---------- META ADS ---------- */
+function tipoChips(tipos){
+  if(!tipos||!tipos.length)return `<span class="chip" style="background:var(--surface-3);color:var(--muted-2)">sin tipo</span>`;
+  return tipos.map(k=>{const v=TIPOS_REEL[k];return v?`<span class="chip" style="background:${v.bg};color:${v.c}">${v.t}</span>`:"";}).join(" ");
+}
+Views.ads=()=>{
+  const rank=adsRanking();
+  const por=(e)=>rank.filter(r=>r.ev.estado===e);
+  const listos=por("listo"), candidatos=por("candidato"), marca=por("marca"),
+        anunciando=por("anunciando"), noRec=por("no"), sinDatos=por("insuficiente"),
+        cerrados=[...por("anunciado"),...por("descartado")];
+
+  const card=(r,{acciones=true}={})=>{
+    const {it,ev}=r, st=ADS_ESTADOS[ev.estado]||ADS_ESTADOS.no, carp=CMAP[it.producto]||CMAP.general;
+    return `<div class="card pad" style="margin-bottom:10px">
+      <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div style="flex:none;width:44px;height:44px;border-radius:12px;background:${st.bg};color:${st.c};display:grid;place-items:center;font-weight:800;font-size:15px" class="tnum">${ev.score}</div>
+        <div style="flex:1;min-width:200px">
+          <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
+            <b style="font-size:14px">${esc(it.titulo)}</b>
+            <span class="chip" style="background:color-mix(in srgb,${carp.color} 14%,transparent);color:${carp.color}">${carp.nombre}</span>
+            ${tipoChips(it.tipos)}
+          </div>
+          <div class="muted" style="font-size:12.5px;margin-top:5px;line-height:1.5">${ev.motivo}</div>
+          ${it.estado==="publicado"&&it.metricasCargadas?`
+          <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:9px;font-size:11.5px" class="muted">
+            <span>Alcance <b class="tnum" style="color:var(--text)">${kfmt(it.alcance)}</b></span>
+            <span>Vendió <b class="tnum" style="color:var(--text)">${ev.uni} u</b></span>
+            <span>Conversión <b class="tnum" style="color:var(--text)">${(ev.conv*100).toFixed(2)}%</b></span>
+            <span>Seguidores <b class="tnum" style="color:var(--text)">+${num(it.seguidoresGanados||0)}</b></span>
+            ${ev.rpm>0?`<span>Por 1.000 alcance <b class="tnum" style="color:var(--good)">${money(ev.rpm)}</b></span>`:""}
+          </div>`:""}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+          <span class="chip" style="background:${st.bg};color:${st.c}">${st.t}</span>
+          ${acciones?`<div style="display:flex;gap:6px">
+            ${it.adsEstado?`<button class="btn sm" data-ads="${it.id}|">Reevaluar</button>`
+              :`<button class="btn sm pri" data-ads="${it.id}|anunciando">Pautar</button>
+                <button class="btn sm" data-ads="${it.id}|descartado">Descartar</button>`}
+            <button class="iconbtn" data-open="${it.id}" title="Editar">${icon("config",15)}</button>
+          </div>`:""}
+        </div>
+      </div>
+    </div>`;
+  };
+
+  const secc=(titulo,arr,desc,acciones=true)=>arr.length?`
+    <div class="section-h" style="margin-top:24px">
+      <h2>${titulo}</h2><span class="chip" style="background:var(--surface-3);color:var(--muted)">${arr.length}</span>
+    </div>
+    ${desc?`<p class="muted" style="font-size:12.5px;margin:-6px 0 12px">${desc}</p>`:""}
+    ${arr.map(r=>card(r,{acciones})).join("")}`:"";
+
+  const totalEval=rank.filter(r=>r.it.estado==="publicado"&&r.it.metricasCargadas).length;
+
+  return `
+  <div class="section-h">
+    <div><div class="eyebrow">Selección para pauta</div><h2 style="font-size:19px">Qué conviene anunciar</h2></div>
+  </div>
+
+  <div class="kpi4" style="margin-bottom:18px">
+    <div class="kpi"><div class="l">Listos para anunciar</div><div class="v tnum" style="color:var(--good)">${listos.length}</div></div>
+    <div class="kpi"><div class="l">En campaña</div><div class="v tnum" style="color:var(--accent-ink)">${anunciando.length}</div></div>
+    <div class="kpi"><div class="l">Candidatos</div><div class="v tnum" style="color:var(--warn)">${candidatos.length}</div></div>
+    <div class="kpi"><div class="l">Piezas evaluadas</div><div class="v tnum">${totalEval}</div></div>
+  </div>
+
+  <div class="card pad" style="margin-bottom:6px;background:var(--surface-2);border-style:dashed">
+    <div style="display:flex;gap:13px;align-items:flex-start">
+      <div style="flex:none;width:34px;height:34px;border-radius:10px;background:var(--info-soft);color:var(--info);display:grid;place-items:center">${icon("ads",18)}</div>
+      <div style="font-size:12.5px;line-height:1.55">
+        <b>Cómo decide:</b> el puntaje pesa conversión (45%), intención — guardados y compartidos (25%), retención (15%) y seguidores (15%).
+        Pero el puntaje solo no alcanza: <b>una pieza sin estructura de venta nunca se recomienda para pautar</b>, por más alcance que tenga.
+        Un reel de tendencia puede volar y traer seguidores sin mostrar el dolor que hace comprar — pautarlo es quemar presupuesto.
+      </div>
+    </div>
+  </div>
+
+  ${secc("En campaña ahora",anunciando,"")}
+  ${secc("Listos para anunciar",listos,"Vendieron en orgánico con estructura de venta. El número en verde es lo que genera cada 1.000 de alcance: si tu CPM en Meta es menor, la pauta da ganancia.")}
+  ${secc("Candidatos — todavía no",candidatos,"Tienen con qué, pero les falta algo concreto. El motivo de cada una dice qué.")}
+  ${secc("Buen alcance, pero no para pautar",marca,"⚠️ Acá está la trampa: performaron bien y algunas trajeron muchos seguidores, pero por estructura no venden. Sirven para marca y comunidad, no para conversión.")}
+  ${secc("No recomendadas",noRec,"")}
+  ${secc("Sin datos suficientes",sinDatos,"Les faltan métricas, alcance o marcar el tipo de reel.",false)}
+  ${secc("Cerradas",cerrados,"",true)}
+
+  ${!rank.length?`<div class="card"><div class="empty">${icon("ads",30)}<div>Todavía no hay contenido cargado para evaluar.</div></div></div>`:""}`;
+};
+
 /* ---------- CONFIG ---------- */
 Views.config=()=>{
   const c=state.config;const cnt=DB.counts();
@@ -1016,20 +1407,39 @@ function closeModal(){document.getElementById("modalRoot").innerHTML="";}
 function contenidoModal(id){
   const c=id?state.contenido.find(x=>x.id===id):null;
   const isNew=!c;
-  const d=c||{tipo:"reel",canal:"organico",pilar:"Demostración",estado:"idea",fecha:fmtISO(HOY),ventas:{}};
+  const d=c||{tipo:"reel",canal:"organico",pilar:"Demostración",estado:"idea",fecha:fmtISO(HOY),ventas:{},producto:"general",tipos:[],framework:""};
   const opt=(v,cur,t)=>`<option value="${v}" ${v===cur?"selected":""}>${t}</option>`;
+  const dTipos=d.tipos||[];
   modal(`
     <div class="mh"><h3>${isNew?"Nueva pieza":"Editar pieza"}</h3><button class="iconbtn" data-action="closeModal">✕</button></div>
     <div class="mbody">
       <div class="field"><label>Título</label><input id="m_titulo" value="${esc(d.titulo||"")}" placeholder="Ej: Sarro del inodoro en 3 min"></div>
       <div class="f2">
+        <div class="field"><label>Carpeta / producto</label><select id="m_producto">${CARPETAS.map(k=>opt(k.id,d.producto||"general",k.nombre)).join("")}</select></div>
         <div class="field"><label>Formato</label><select id="m_tipo">${Object.entries(TIPOS).map(([k,v])=>opt(k,d.tipo,v)).join("")}</select></div>
+      </div>
+      <div class="f2">
         <div class="field"><label>Canal</label><select id="m_canal">${opt("organico",d.canal,"Orgánico")}${opt("anuncio",d.canal,"Anuncio")}</select></div>
+        <div class="field"><label>Estado</label><select id="m_estado">${Object.entries(ESTADOS).map(([k,v])=>opt(k,d.estado,v.t)).join("")}</select></div>
       </div>
       <div class="f2">
         <div class="field"><label>Pilar</label><select id="m_pilar">${PILARES.map(p=>opt(p,d.pilar,p)).join("")}</select></div>
-        <div class="field"><label>Estado</label><select id="m_estado">${Object.entries(ESTADOS).map(([k,v])=>opt(k,d.estado,v.t)).join("")}</select></div>
+        <div class="field"><label>Framework del guion</label><select id="m_framework">
+          <option value="">— sin definir —</option>
+          ${Object.entries(FRAMEWORKS).map(([k,v])=>opt(k,d.framework||"",v.t)).join("")}
+        </select></div>
       </div>
+
+      <div class="field">
+        <label>Tipo de reel — se pueden combinar</label>
+        <div id="m_tiposWrap" style="display:flex;gap:8px;flex-wrap:wrap">
+          ${Object.entries(TIPOS_REEL).map(([k,v])=>`
+            <button type="button" class="tipochip ${dTipos.includes(k)?"on":""}" data-tipo="${k}"
+              style="border:1px solid ${dTipos.includes(k)?v.c:"var(--border)"};background:${dTipos.includes(k)?v.bg:"transparent"};color:${dTipos.includes(k)?v.c:"var(--muted)"};font-weight:600;font-size:12.5px;padding:7px 12px;border-radius:9px" title="${v.d}">${v.t}</button>`).join("")}
+        </div>
+        <div class="muted" style="font-size:11.5px">Solo las que tengan <b>Venta</b> se recomiendan para pautar. Tendencia sola trae alcance, no compradores.</div>
+      </div>
+
       <div class="f2">
         <div class="field"><label>Fecha (publicación o planificada)</label><input type="date" id="m_fecha" value="${d.fecha}"></div>
         <div class="field"><label>Inversión en ads ($)</label><input type="number" id="m_gasto" value="${d.gastoAnuncio||0}" min="0"></div>
@@ -1042,9 +1452,10 @@ function contenidoModal(id){
           <div class="field"><label>Likes</label><input type="number" id="m_likes" value="${d.likes||0}"></div>
           <div class="field"><label>Comentarios</label><input type="number" id="m_comentarios" value="${d.comentarios||0}"></div>
         </div>
-        <div class="f2" style="margin-top:10px">
+        <div class="f4" style="margin-top:10px">
           <div class="field"><label>Guardados</label><input type="number" id="m_guardados" value="${d.guardados||0}"></div>
           <div class="field"><label>Compartidos</label><input type="number" id="m_compartidos" value="${d.compartidos||0}"></div>
+          <div class="field"><label>Seguidores que trajo</label><input type="number" id="m_seguidores" value="${d.seguidoresGanados||0}" min="0"></div>
         </div>
       </div>
       <div style="border-top:1px solid var(--border);padding-top:14px">
@@ -1052,6 +1463,15 @@ function contenidoModal(id){
         <div class="f4">
           ${PRODUCTOS.map(p=>`<div class="field"><label style="color:${p.color}">${p.nombre.replace("Quita ","")}</label><input type="number" id="m_v_${p.id}" value="${d.ventas?.[p.id]||0}" min="0"></div>`).join("")}
         </div>
+        ${tienePrecioCongelado(d)?`
+        <div style="margin-top:12px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--border);border-radius:9px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span class="chip" style="background:var(--accent-soft);color:var(--accent-ink)">🔒 Precio congelado</span>
+            <span class="muted tnum" style="font-size:11.5px">${PRODUCTOS.filter(p=>d.preciosSnapshot[p.id]!=null).map(p=>`${p.nombre.replace("Quita ","")} ${money(d.preciosSnapshot[p.id])}`).join(" · ")}</span>
+          </div>
+          <div class="muted" style="font-size:11px;margin-top:6px">Es el precio del momento de la venta. Aunque Mercado Libre cambie, estos ingresos no se recalculan.
+            <button type="button" class="btn sm" data-action="recalcPrecios" style="margin-left:6px;padding:3px 8px;font-size:11px">Actualizar a precios de hoy</button></div>
+        </div>`:""}
       </div>
       <label style="display:flex;align-items:center;gap:9px;font-size:13px;font-weight:600;cursor:pointer"><input type="checkbox" id="m_cargada" ${d.metricasCargadas?"checked":""} style="width:16px;height:16px"> Métricas y ventas ya cargadas (sale de recordatorios)</label>
     </div>
@@ -1060,6 +1480,32 @@ function contenidoModal(id){
       <button class="btn" data-action="closeModal">Cancelar</button>
       <button class="btn pri" data-savecont="${isNew?"":c.id}">Guardar</button>
     </div>`);
+
+  // estado vivo del modal: tipos elegidos y precios ya congelados de esta pieza
+  MODAL_TIPOS=[...dTipos];
+  MODAL_SNAPSHOT={...(d.preciosSnapshot||{})};
+
+  // chips de tipo de reel: toggle + sugerencia automática desde el framework
+  document.querySelectorAll(".tipochip").forEach(btn=>{
+    btn.addEventListener("click",()=>{
+      const k=btn.dataset.tipo,v=TIPOS_REEL[k];
+      const on=MODAL_TIPOS.includes(k);
+      if(on)MODAL_TIPOS=MODAL_TIPOS.filter(x=>x!==k); else MODAL_TIPOS.push(k);
+      const activo=MODAL_TIPOS.includes(k);
+      btn.style.borderColor=activo?v.c:"var(--border)";
+      btn.style.background=activo?v.bg:"transparent";
+      btn.style.color=activo?v.c:"var(--muted)";
+    });
+  });
+  // al elegir framework, si todavía no marcó ningún tipo, sugiere el que corresponde
+  const fw=document.getElementById("m_framework");
+  if(fw)fw.addEventListener("change",()=>{
+    const f=FRAMEWORKS[fw.value];
+    if(!f||MODAL_TIPOS.length)return;
+    const sug=f.venta?"venta":"valor";
+    const btn=document.querySelector(`.tipochip[data-tipo="${sug}"]`);
+    if(btn)btn.click();
+  });
 }
 function metaModal(id){
   const m=id?state.metas.find(x=>x.id===id):null;const isNew=!m;
@@ -1094,15 +1540,49 @@ function metaModal(id){
 /* ============================================================
    ACCIONES
    ============================================================ */
+let MODAL_TIPOS=[];      // tipos de reel elegidos en el modal abierto
+let MODAL_SNAPSHOT={};   // precios ya congelados de la pieza que se está editando
+
+/** Libera los precios congelados para que se vuelvan a tomar los de hoy. */
+function recalcPrecios(){
+  MODAL_SNAPSHOT={};
+  toast("Se van a usar los precios de hoy al guardar");
+  const box=document.querySelector('[data-action="recalcPrecios"]');
+  if(box)box.closest("div[style*='surface-2']").innerHTML=
+    `<span class="chip" style="background:var(--warn-soft);color:var(--warn)">Se recalcula con precios de hoy al guardar</span>`;
+}
+
+/** Marca el estado manual de una pieza en el flujo de Meta Ads. */
+function setAdsEstado(id,estado){
+  const o=state.contenido.find(c=>c.id===id);if(!o)return;
+  o.adsEstado=estado||null;
+  DB.upsertContenido(o);
+  toast(estado?`Marcado como "${ADS_ESTADOS[estado]?.t||estado}"`:"Vuelve a evaluación automática");
+  render();
+}
+
 function saveContenido(id){
   const g=x=>document.getElementById(x);
   const gn=x=>Number(g(x).value)||0;
   const ventas={};PRODUCTOS.forEach(p=>ventas[p.id]=gn("m_v_"+p.id));
+
+  // CONGELAR EL PRECIO: la primera vez que una venta de ese producto se registra,
+  // se guarda el precio vigente. No se vuelve a tocar aunque el precio cambie después.
+  // Si la venta se borra (vuelve a 0), se libera para no dejar un precio huérfano.
+  const snap={...(MODAL_SNAPSHOT||{})};
+  PRODUCTOS.forEach(p=>{
+    const q=ventas[p.id]||0;
+    if(q>0&&snap[p.id]==null)snap[p.id]=p.precio;
+    if(q===0)delete snap[p.id];
+  });
+
   const data={
     titulo:g("m_titulo").value.trim()||"Sin título",tipo:g("m_tipo").value,canal:g("m_canal").value,
+    producto:g("m_producto").value,framework:g("m_framework").value||"",tipos:[...(MODAL_TIPOS||[])],
     pilar:g("m_pilar").value,estado:g("m_estado").value,fecha:g("m_fecha").value,gastoAnuncio:gn("m_gasto"),
     vistas:gn("m_vistas"),alcance:gn("m_alcance"),likes:gn("m_likes"),comentarios:gn("m_comentarios"),
-    guardados:gn("m_guardados"),compartidos:gn("m_compartidos"),ventas,metricasCargadas:g("m_cargada").checked,
+    guardados:gn("m_guardados"),compartidos:gn("m_compartidos"),seguidoresGanados:gn("m_seguidores"),
+    ventas,preciosSnapshot:snap,metricasCargadas:g("m_cargada").checked,
   };
   let o;
   if(id){o=state.contenido.find(x=>x.id===id);Object.assign(o,data);}
@@ -1143,7 +1623,7 @@ function toast(msg){const t=document.createElement("div");t.textContent=msg;t.st
    ROUTER / RENDER
    ============================================================ */
 let current="resumen";
-const TITLES={resumen:"Resumen",contenido:"Contenido",metas:"Metas",productos:"Productos",metricas:"Métricas",reportes:"Reportes",recordatorios:"Recordatorios",config:"Configuración"};
+const TITLES={resumen:"Resumen",contenido:"Contenido",ads:"Meta Ads",metas:"Metas",productos:"Productos",metricas:"Métricas",reportes:"Reportes",recordatorios:"Recordatorios",config:"Configuración"};
 function buildNav(){
   const nav=document.getElementById("nav");const rem=reminders();
   nav.innerHTML=`<div class="lbl">Gestión</div>`+NAV.map(([v,t])=>`<a data-view="${v}" class="${v===current?"on":""}">${icon(v)}<span>${t}</span>${v==="recordatorios"&&rem.total?`<span class="cnt">${rem.total}</span>`:""}</a>`).join("");
@@ -1159,6 +1639,27 @@ function render(){
   const fc=document.getElementById("fCanal");if(fc)fc.onchange=()=>{contFilter.canal=fc.value;render();};
   const ci=document.getElementById("corteInput");if(ci)ci.onchange=()=>{reportCorte=ci.value;render();};
 }
+/* búsqueda inteligente: se cablea una sola vez, no en cada render */
+(function wireBusqueda(){
+  const go=()=>{
+    const inp=document.getElementById("globalSearch");if(!inp)return;
+    inp.addEventListener("input",()=>renderBusqueda(inp.value));
+    inp.addEventListener("focus",()=>{if(inp.value.trim())renderBusqueda(inp.value);});
+    inp.addEventListener("keydown",e=>{
+      if(e.key==="Escape"){inp.value="";renderBusqueda("");inp.blur();}
+      if(e.key==="Enter"){const f=document.querySelector("#searchResults .sr-item");if(f)f.click();}
+    });
+    // Ctrl/Cmd+K enfoca la lupa
+    document.addEventListener("keydown",e=>{
+      if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="k"){e.preventDefault();inp.focus();inp.select();}
+    });
+    // click afuera cierra los resultados
+    document.addEventListener("click",e=>{
+      if(!e.target.closest(".search")){const b=document.getElementById("searchResults");if(b){b.hidden=true;}}
+    });
+  };
+  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",go);else go();
+})();
 function go(v){current=v;document.getElementById("app").classList.remove("open");document.getElementById("view").parentElement.scrollTop=0;render();}
 
 /* ============================================================
@@ -1167,10 +1668,15 @@ function go(v){current=v;document.getElementById("app").classList.remove("open")
 document.addEventListener("click",e=>{
   // click en el fondo del overlay (fuera del cuadro) cierra el modal; clicks adentro siguen su curso
   if(e.target.closest(".overlay")&&!e.target.closest(".modal")){closeModal();return;}
-  const t=e.target.closest("[data-view],[data-action],[data-open],[data-savecont],[data-delcont],[data-editmeta],[data-delmeta],[data-savemeta],[data-met]");
+  const t=e.target.closest("[data-view],[data-action],[data-open],[data-savecont],[data-delcont],[data-editmeta],[data-delmeta],[data-savemeta],[data-met],[data-carpeta],[data-ads]");
   if(!t)return;
+  if(t.dataset.carpeta){contFilter.carpeta=t.dataset.carpeta;render();return;}
+  if(t.dataset.ads){const [id,est]=t.dataset.ads.split("|");setAdsEstado(id,est||null);return;}
   if(t.dataset.view){go(t.dataset.view);return;}
-  if(t.dataset.open){contenidoModal(t.dataset.open);return;}
+  if(t.dataset.open){
+    const b=document.getElementById("searchResults");if(b)b.hidden=true;  // cerrar la lupa al abrir un resultado
+    contenidoModal(t.dataset.open);return;
+  }
   if(t.dataset.savecont!==undefined){saveContenido(t.dataset.savecont||null);return;}
   if(t.dataset.delcont){delContenidoAct(t.dataset.delcont);return;}
   if(t.dataset.editmeta){metaModal(t.dataset.editmeta);return;}
@@ -1187,6 +1693,7 @@ document.addEventListener("click",e=>{
   else if(a==="dismissBanner"){const b=document.getElementById("banner");if(b)b.style.display="none";}
   else if(a==="printReport")window.print();
   else if(a==="saveConfig")saveConfigAct();
+  else if(a==="recalcPrecios")recalcPrecios();
   else if(a==="wipe"){if(confirm("Esto borra TODO el contenido y las metas cargadas. ¿Seguro?"))wipeAll();}
 });
 
