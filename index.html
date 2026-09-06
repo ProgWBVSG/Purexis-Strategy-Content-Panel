@@ -1,4 +1,12 @@
-﻿<title>Panel Purexis</title>
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#131B1A" media="(prefers-color-scheme:dark)">
+<meta name="theme-color" content="#EBEFEF" media="(prefers-color-scheme:light)">
+<meta name="description" content="Panel de control de contenido, ventas y pauta de Purexis.">
+<title>Panel Purexis</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
 
@@ -47,6 +55,8 @@
 }
 
 *{box-sizing:border-box}
+[hidden]{display:none!important}
+html{-webkit-text-size-adjust:100%}
 html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
 button{font-family:inherit;cursor:pointer}
@@ -56,7 +66,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:20px;border:3px solid var(--surface)}
 
 /* ---------- APP SHELL ---------- */
-.app{display:grid;grid-template-columns:240px 1fr;height:100vh;overflow:hidden}
+.app{display:grid;grid-template-columns:240px 1fr;height:100vh;height:100dvh;overflow:hidden}
 .scrim{display:none}
 
 /* ---------- SIDEBAR ---------- */
@@ -160,7 +170,7 @@ table.dt tbody tr:hover{background:var(--surface-2)}
 .ct-name .ti{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;flex:none}
 .ct-name b{font-weight:600;font-size:13px;display:block}
 .ct-name small{color:var(--muted-2);font-size:11px}
-.wrap{overflow-x:auto}
+.wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
 
 /* charts */
 .chart-wrap{width:100%}
@@ -223,10 +233,50 @@ table.dt tbody tr:hover{background:var(--surface-2)}
   .scrim{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:55}
   .app.open .scrim{display:block}
   .hb{display:grid}
-  .search{display:none}
-  .f2,.f4{grid-template-columns:1fr}
-  .content{padding:16px 14px 50px}
-  .topbar{padding:11px 14px}
+  .content{padding:16px 14px 80px}
+
+  /* la barra de arriba pasa a dos filas: el buscador es la función principal,
+     no se esconde — baja a lo ancho debajo del título */
+  .topbar{flex-wrap:wrap;gap:10px;padding:10px 14px}
+  .topbar h1{flex:1;font-size:16px}
+  .search{order:10;flex:1 1 100%;max-width:none;margin:0}
+  .avatar{display:none}
+
+  /* los grids de 2 columnas están inline en las vistas: hay que pisarlos */
+  .grid[style*="grid-template-columns"]{grid-template-columns:1fr!important}
+  .f2{grid-template-columns:1fr}
+  .f4{grid-template-columns:1fr 1fr}   /* 4 campitos de venta: 2x2 antes que 4 filas */
+
+  /* dedo, no mouse */
+  .iconbtn{width:38px;height:38px}
+  .btn{padding:10px 14px}
+  .btn.sm{padding:8px 12px}
+  .nav a{padding:11px 10px}
+  /* 16px o iOS hace zoom al enfocar un campo */
+  .field input,.field select,.field textarea,.search input{font-size:16px}
+
+  table.dt th,table.dt td{padding:10px 12px}
+  .sm-hide{display:none}          /* columnas secundarias fuera en pantalla chica */
+  .section-h{flex-wrap:wrap;row-gap:8px}
+  .banner{flex-wrap:wrap;row-gap:10px}
+  .banner .bt{flex:1 1 100%}
+  .modal{max-height:92vh}
+  .mbody{padding:16px}
+  .stat .val{font-size:24px}
+  .tablecard .th{flex-wrap:wrap;row-gap:8px}
+}
+@media (max-width:760px){
+  /* comparador: la columna de métrica queda fija al scrollear en horizontal,
+     si no se pierde de vista qué se está leyendo */
+  table.cmp td:first-child,table.cmp th:first-child{
+    position:sticky;left:0;background:var(--surface);z-index:1;box-shadow:1px 0 0 var(--border-2)}
+  table.cmp tbody tr:hover td:first-child{background:var(--surface-2)}
+}
+@media (max-width:430px){
+  .kpi4{grid-template-columns:1fr 1fr}
+  .kpi .v{font-size:19px}
+  .seg{width:100%}
+  .seg button{flex:1;padding:8px 6px}
 }
 @media print{
   .side,.topbar,.no-print{display:none!important}
@@ -237,6 +287,8 @@ table.dt tbody tr:hover{background:var(--surface-2)}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
+</head>
+<body>
 
 <div class="app" id="app">
   <div class="scrim" data-action="closeNav"></div>
@@ -885,11 +937,11 @@ function filaContenido(c){
   const carp=CMAP[c.producto]||CMAP.general;
   return `<tr data-open="${c.id}" style="cursor:pointer">
     <td><div class="ct-name">${tipoIcon(c.tipo)}<div><b>${esc(c.titulo)}</b><small>${TIPOS[c.tipo]} · ${esc(c.pilar||"—")}${c.framework&&FRAMEWORKS[c.framework]?" · "+FRAMEWORKS[c.framework].t.split(" ·")[0]:""}</small></div></div></td>
-    <td>${contFilter.carpeta==="todas"?`<span class="chip" style="background:color-mix(in srgb,${carp.color} 14%,transparent);color:${carp.color}">${carp.nombre}</span>`:tipoChips(c.tipos)}</td>
-    <td>${canalChip(c.canal)}</td>
-    <td class="tnum muted" style="font-size:12.5px">${fdate(c.fecha)}</td>
+    <td class="sm-hide">${contFilter.carpeta==="todas"?`<span class="chip" style="background:color-mix(in srgb,${carp.color} 14%,transparent);color:${carp.color}">${carp.nombre}</span>`:tipoChips(c.tipos)}</td>
+    <td class="sm-hide">${canalChip(c.canal)}</td>
+    <td class="tnum muted sm-hide" style="font-size:12.5px">${fdate(c.fecha)}</td>
     <td class="tnum">${c.estado==="publicado"?kfmt(c.vistas):'<span class="muted">—</span>'}</td>
-    <td class="tnum">${c.estado==="publicado"&&c.seguidoresGanados?"+"+kfmt(c.seguidoresGanados):'<span class="muted">—</span>'}</td>
+    <td class="tnum sm-hide">${c.estado==="publicado"&&c.seguidoresGanados?"+"+kfmt(c.seguidoresGanados):'<span class="muted">—</span>'}</td>
     <td class="tnum" style="font-weight:600">${unidades(c)||0} u</td>
     <td>${estadoChip(c.estado)}</td>
     <td style="white-space:nowrap">
@@ -898,7 +950,7 @@ function filaContenido(c){
     </td>
   </tr>`;
 }
-const THEAD_CONTENIDO=`<thead><tr><th>Contenido</th><th>${'Carpeta / tipo'}</th><th>Canal</th><th>Fecha</th><th>Vistas</th><th>Segs</th><th>Ventas</th><th>Estado</th><th></th></tr></thead>`;
+const THEAD_CONTENIDO=`<thead><tr><th>Contenido</th><th class="sm-hide">Carpeta / tipo</th><th class="sm-hide">Canal</th><th class="sm-hide">Fecha</th><th>Vistas</th><th class="sm-hide">Segs</th><th>Ventas</th><th>Estado</th><th></th></tr></thead>`;
 
 Views.contenido=()=>{
   let items=[...state.contenido];
@@ -1394,7 +1446,7 @@ Views.comparar=()=>{
     const aviso=conf.includes(false)?`<div class="card pad" style="margin-bottom:12px;background:var(--warn-soft);border-color:var(--warn)">
       <div style="font-size:12.5px;color:var(--warn)"><b>Ojo:</b> ${sel.filter((c,i)=>!conf[i]).map(c=>esc(c.titulo)).join(", ")} no llega${sel.filter((c,i)=>!conf[i]).length>1?"n":""} al alcance mínimo (${num(alcanceMinimo())}). Sus tasas salen s/d porque con tan poca gente cualquier porcentaje es ruido — los números absolutos sí se muestran.</div>
     </div>`:"";
-    tabla=aviso+`<div class="tablecard"><div class="wrap"><table class="dt">
+    tabla=aviso+`<div class="tablecard"><div class="wrap"><table class="dt cmp">
       <thead><tr><th style="min-width:190px">Métrica</th>${cab}</tr></thead>
       <tbody>${filas}</tbody></table></div></div>`;
 
@@ -1922,3 +1974,5 @@ async function boot(){
 }
 boot();
 </script>
+</body>
+</html>
