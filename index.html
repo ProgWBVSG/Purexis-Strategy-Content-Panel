@@ -440,6 +440,7 @@ function rowToContenido(r){
   return {id:r.id,titulo:r.titulo,tipo:r.tipo,canal:r.canal,pilar:r.pilar,estado:r.estado,fecha:r.fecha,
     producto:r.producto||"general",framework:r.framework||"",tipos:Array.isArray(r.tipos)?r.tipos:[],url:r.url||"",
     impresiones:r.impresiones||0,duracionSeg:r.duracion_seg||0,tiempoMedioSeg:Number(r.tiempo_medio_seg)||0,envios:r.envios||0,
+    posiblesClientes:r.posibles_clientes||0,
     vistas:r.vistas||0,alcance:r.alcance||0,likes:r.likes||0,comentarios:r.comentarios||0,
     guardados:r.guardados||0,compartidos:r.compartidos||0,gastoAnuncio:r.gasto_anuncio||0,
     seguidoresGanados:r.seguidores_ganados||0,
@@ -451,6 +452,7 @@ function contenidoToRow(o){
   return {id:o.id,titulo:o.titulo,tipo:o.tipo,canal:o.canal,pilar:o.pilar,estado:o.estado,fecha:o.fecha,
     producto:o.producto||"general",framework:o.framework||null,tipos:o.tipos||[],url:o.url||null,
     impresiones:o.impresiones|0,duracion_seg:o.duracionSeg|0,tiempo_medio_seg:Number(o.tiempoMedioSeg)||0,envios:o.envios|0,
+    posibles_clientes:o.posiblesClientes|0,
     vistas:o.vistas|0,alcance:o.alcance|0,likes:o.likes|0,comentarios:o.comentarios|0,
     guardados:o.guardados|0,compartidos:o.compartidos|0,gasto_anuncio:o.gastoAnuncio|0,
     seguidores_ganados:o.seguidoresGanados|0,
@@ -1499,12 +1501,22 @@ function diagnostico(it){
       detalle:`${num(it.envios||0)} envíos por mensaje sobre ${num(alc)} de alcance (${pct(E.envios)}). Los envíos pesan entre 3 y 5 veces más que un like para que Instagram lo reparta, y son lo que hace que salga de tus seguidores.`,
       accion:"Falta el momento de mostrárselo a alguien: un dato que sorprenda, o un resultado tan visible que dé ganas de mandárselo a la persona que tiene ese problema en su casa."});
 
-  // ETAPA 4 — retuvo y viajó, pero no vendió.
+  // ETAPA 4 — retuvo y viajó. ¿Generó interés? ¿Y cerró?
   const tieneVenta=(it.tipos||[]).includes("venta");
+  const posibles=it.posiblesClientes||0;
+
+  // Generó consultas y no cerró ninguna: el reel hizo su trabajo, el problema
+  // está después del reel. No hay que tocar el contenido.
+  if(uni===0 && posibles>0)
+    return Object.assign({},base,{nivel:"aviso",etapa:"cierre",
+      titulo:`Generó ${posibles} ${posibles===1?"consulta":"consultas"} y no cerró ninguna`,
+      detalle:"El reel hizo su trabajo: pasó el embudo y la gente preguntó. Lo que se cae está después — el precio, la respuesta, o una objeción que no se resolvió. Cambiar el reel acá sería arreglar lo que no está roto.",
+      accion:"Revisá qué preguntaron y qué contestaste. Si la misma objeción se repite en varias consultas, esa objeción es el próximo reel."});
+
   if(uni===0 && tieneVenta)
     return Object.assign({},base,{nivel:"aviso",etapa:"conversion",
       titulo:"Funcionó como contenido, falló como venta",
-      detalle:"Pasó las tres etapas del embudo y no registró ninguna venta. El problema ya no es la atención: es que la atención no se convirtió en intención de compra.",
+      detalle:"Pasó las tres etapas del embudo, nadie preguntó y no vendió. El problema ya no es la atención: es que la atención no se convirtió en interés de compra.",
       accion:"Revisá dos cosas: si el reel muestra el dolor con la escena concreta en vez del producto, y si hay un solo CTA al final. Dos CTAs es lo mismo que ninguno."});
 
   if(uni===0)
@@ -1513,10 +1525,15 @@ function diagnostico(it){
       detalle:"Retuvo y se compartió, pero está marcada como valor o tendencia. Ese alcance no está pensado para convertir.",
       accion:"Si el tema funcionó, hacé una versión con estructura de venta: mismo tema, apertura de dolor y un CTA."});
 
+  const cierre=posibles>0 ? uni/(uni+posibles) : null;
   return Object.assign({},base,{nivel:"ok",etapa:"completo",
     titulo:`Funcionó de punta a punta: ${uni} ${uni===1?"unidad":"unidades"}`,
-    detalle:`Retuvo${E.retencion!=null?` (${pct(E.retencion)})`:""}, se compartió${E.envios!=null?` (${pct(E.envios)} de envíos)`:""} y vendió. Esta es la combinación que hay que repetir.`,
-    accion:"Reversionala con otro producto o superficie, y evaluala para pautar."});
+    detalle:`Retuvo${E.retencion!=null?` (${pct(E.retencion)})`:""}, se compartió${E.envios!=null?` (${pct(E.envios)} de envíos)`:""} y vendió.`
+      +(cierre!=null?` De ${uni+posibles} personas que preguntaron cerraste ${uni}: ${pct(cierre)} de cierre.`:"")
+      +" Esta es la combinación que hay que repetir.",
+    accion:cierre!=null&&cierre<0.5
+      ? `Reversionala, y en paralelo mirá las ${posibles} consultas que no cerraron: ahí está la objeción que te falta responder.`
+      : "Reversionala con otro producto o superficie, y evaluala para pautar."});
 }
 
 /** Donde falla la cuenta en general, no una pieza suelta. Es la respuesta a
@@ -1524,9 +1541,9 @@ function diagnostico(it){
  *  problema es de aperturas, no de temas. */
 function patronDeFallas(){
   const pubs=publicados().filter(c=>c.metricasCargadas&&(c.alcance||0)>=alcanceMinimo());
-  const por={gancho:0,retencion:0,envios:0,conversion:0,estructura:0,completo:0};
+  const por={gancho:0,retencion:0,envios:0,cierre:0,conversion:0,estructura:0,completo:0};
   pubs.forEach(c=>{const d=diagnostico(c); if(por[d.etapa]!==undefined)por[d.etapa]++;});
-  const orden=["gancho","retencion","envios","conversion","estructura"];
+  const orden=["gancho","retencion","envios","cierre","conversion","estructura"];
   let peor=null,max=0;
   orden.forEach(k=>{if(por[k]>max){max=por[k];peor=k;}});
   return {total:pubs.length,por,peor,cuantas:max};
@@ -1538,6 +1555,8 @@ const PATRON_TXT={
     d:"Los ganchos funcionan y la gente entra, pero se van antes de la mitad. Revisá el ritmo y en qué segundo aparece la transformación."},
   envios:{t:"Falta el motivo para compartir",
     d:"Retenés bien pero no te mandan los reels por mensaje, que es lo que los saca de tus seguidores."},
+  cierre:{t:"El contenido funciona, el cierre no",
+    d:"Tus reels generan consultas y las consultas no terminan en venta. El cuello de botella ya no está en el contenido: está en lo que pasa después del mensaje. Juntá las objeciones que se repiten — cada una es un reel."},
   conversion:{t:"Atención sí, compra no",
     d:"El contenido funciona y no convierte. El problema está en el dolor mostrado y en el CTA, no en el alcance."},
   estructura:{t:"Alcance sin intención de venta",
@@ -1599,7 +1618,9 @@ const METRICAS_CMP=[
   {l:"Compartidos",        get:c=>c.compartidos||0,                               fmt:num},
   {l:"Intención (guard+comp / alcance)",get:c=>c.alcance?((c.guardados||0)+(c.compartidos||0))/c.alcance:0,fmt:v=>(v*100).toFixed(2)+"%", tasa:true},
   {l:"Seguidores que trajo",get:c=>c.seguidoresGanados||0,                        fmt:v=>"+"+num(v)},
+  {l:"Posibles clientes",  get:c=>c.posiblesClientes||0,                          fmt:v=>num(v)+""},
   {l:"Unidades vendidas",  get:c=>unidades(c),                                    fmt:v=>v+" u", clave:true},
+  {l:"Cierre (vendidas / preguntaron)",get:c=>{const u=unidades(c),pp=c.posiblesClientes||0;return (u+pp)?u/(u+pp):0;},fmt:v=>(v*100).toFixed(0)+"%", clave:true, tasa:true},
   {l:"Conversión",         get:c=>c.alcance?unidades(c)/c.alcance:0,              fmt:v=>(v*100).toFixed(2)+"%", clave:true, tasa:true},
   {l:"Ingresos",           get:c=>ingresosItem(c),                                fmt:money},
   {l:"Ingreso por 1.000 de alcance",get:c=>c.alcance?ingresosItem(c)/c.alcance*1000:0,fmt:money, clave:true, tasa:true},
@@ -1887,7 +1908,7 @@ function diagBloque(it){
 function diagChip(it){
   const d=diagnostico(it), n=DIAG_NIVEL[d.nivel];
   const etiqueta=d.nivel==="sindatos"?"s/d":{gancho:"Gancho",retencion:"Retención",envios:"Envíos",
-    conversion:"No vendió",estructura:"Sin venta",completo:"Completo",alcance:"Poco alcance"}[d.etapa]||n.t;
+    cierre:"No cerró",conversion:"No vendió",estructura:"Sin venta",completo:"Completo",alcance:"Poco alcance"}[d.etapa]||n.t;
   return `<span class="chip" style="background:${n.bg};color:${n.c}" title="${esc(d.titulo)}">${etiqueta}</span>`;
 }
 
@@ -2095,6 +2116,13 @@ function contenidoModal(id){
         </div>
       </div>
       <div style="border-top:1px solid var(--border);padding-top:14px">
+        <div class="field">
+          <label>Posibles clientes — preguntaron por este reel y no compraron</label>
+          <input type="number" id="m_posibles" value="${d.posiblesClientes||0}" min="0" placeholder="0">
+          <div class="muted" style="font-size:11.5px">Sirve para saber si el reel no generó interés, o si generó interés y se cayó el cierre.</div>
+        </div>
+      </div>
+      <div style="border-top:1px solid var(--border);padding-top:14px">
         <div class="eyebrow" style="margin-bottom:10px">El resto de las métricas</div>
         <div class="f4">
           <div class="field"><label>Vistas</label><input type="number" id="m_vistas" value="${d.vistas||0}"></div>
@@ -2233,6 +2261,7 @@ function saveContenido(id){
     pilar:g("m_pilar").value,estado:g("m_estado").value,fecha:g("m_fecha").value,gastoAnuncio:gn("m_gasto"),
     vistas:gn("m_vistas"),alcance:gn("m_alcance"),likes:gn("m_likes"),comentarios:gn("m_comentarios"),
     duracionSeg:gn("m_duracion"),tiempoMedioSeg:gn("m_tmedio"),impresiones:gn("m_impresiones"),envios:gn("m_envios"),
+    posiblesClientes:gn("m_posibles"),
     guardados:gn("m_guardados"),compartidos:gn("m_compartidos"),seguidoresGanados:gn("m_seguidores"),
     // si cargó vistas o alcance, la pieza YA tiene métricas: no depende de acordarse del tilde
     ventas,preciosSnapshot:snap,
