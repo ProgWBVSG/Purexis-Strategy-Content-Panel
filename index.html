@@ -59,7 +59,8 @@
 html{-webkit-text-size-adjust:100%}
 html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
-button{font-family:inherit;cursor:pointer}
+button{font-family:inherit;cursor:pointer;color:inherit}
+.card{color:var(--text)}
 input,select,textarea{font-family:inherit;font-size:14px}
 .tnum{font-variant-numeric:tabular-nums}
 ::-webkit-scrollbar{width:10px;height:10px}
@@ -210,6 +211,11 @@ table.dt tbody tr:hover{background:var(--surface-2)}
 .sr-item:hover,.sr-item:focus-visible{background:var(--surface-2);outline:none}
 .tipochip{cursor:pointer;transition:background .15s,border-color .15s,color .15s}
 
+/* Tablero de contenido: las columnas envuelven en vez de obligar a scrollear
+   de costado. Con seis etapas, la fila horizontal nunca entraba en pantalla. */
+.tablero{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px;align-items:start}
+.tablero-col{min-width:0}
+.tablero-col.vacia{opacity:.55}
 .empty{text-align:center;color:var(--muted);padding:40px 20px}
 .empty svg{color:var(--muted-2);margin-bottom:10px}
 
@@ -264,6 +270,8 @@ table.dt tbody tr:hover{background:var(--surface-2)}
   .mbody{padding:16px}
   .stat .val{font-size:24px}
   .tablecard .th{flex-wrap:wrap;row-gap:8px}
+  .tablero{grid-template-columns:1fr;gap:12px}
+  .tablero-col.vacia{display:none}   /* en pantalla chica las etapas vacias solo estorban */
   /* tarjeta de progreso de metas: barra a su propia fila para que entre el botón */
   #setupCard{flex-wrap:wrap;row-gap:10px}
   #setupCard>div:nth-child(2){min-width:0!important;flex:1}
@@ -1231,7 +1239,30 @@ Views.metricas=()=>{
       <button data-met="anuncio" class="${metFilter==="anuncio"?"on":""}">Anuncios</button>
     </div>
   </div>
+  ${(function(){
+    const A=analisisCierre(items), n=DIAG_NIVEL[A.nivel];
+    return `<div class="card pad" style="margin-bottom:16px;border-left:3px solid ${n.c}">
+      <div style="display:flex;gap:13px;align-items:flex-start;flex-wrap:wrap">
+        <div style="flex:none;width:34px;height:34px;border-radius:10px;background:${n.bg};color:${n.c};display:grid;place-items:center">${icon("metas",18)}</div>
+        <div style="flex:1;min-width:200px">
+          <div class="eyebrow" style="font-size:10px">De la conversación a la venta</div>
+          <b style="font-size:14.5px;display:block;margin-top:3px">${esc(A.titulo)}</b>
+          <div class="muted" style="font-size:13px;line-height:1.55;margin-top:5px">${A.detalle}</div>
+          ${A.accion?`<div style="margin-top:10px;padding:10px 12px;background:var(--surface-2);border-radius:9px;font-size:12.5px;line-height:1.55">
+            <b style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted-2);display:block;margin-bottom:4px">Qué hacer</b>${A.accion}</div>`:""}
+          ${A.totConv>0?`<div class="legend" style="margin-top:11px">
+            <span><i style="background:var(--info)"></i>Conversaciones <b>${num(A.totConv)}</b></span>
+            <span><i style="background:var(--good)"></i>Cerradas <b>${num(A.totVen)}</b></span>
+            <span><i style="background:var(--muted-2)"></i>Sin cerrar <b>${num(A.totInt)}</b></span>
+          </div>`:""}
+          ${A.masConsultada&&conversaciones(A.masConsultada)>0?`<div class="muted" style="font-size:11.5px;margin-top:9px">
+            La que más preguntas generó: <b style="color:var(--text)">${esc(A.masConsultada.titulo)}</b> (${conversaciones(A.masConsultada)} conversaciones). Ese tema despierta demanda.</div>`:""}
+        </div>
+      </div>
+    </div>`;
+  })()}
   <div class="kpi4" style="margin-bottom:16px">
+    <div class="kpi"><div class="l">Conversaciones</div><div class="v tnum">${num(items.reduce((a,c)=>a+conversaciones(c),0))}</div></div>
     <div class="kpi"><div class="l">Vistas</div><div class="v tnum">${num(vistas)}</div></div>
     <div class="kpi"><div class="l">Alcance</div><div class="v tnum">${num(alcance)}</div></div>
     <div class="kpi"><div class="l">Engagement</div><div class="v tnum">${eng.toFixed(1)}%</div></div>
@@ -1510,8 +1541,11 @@ function diagnostico(it){
   if(uni===0 && posibles>0)
     return Object.assign({},base,{nivel:"aviso",etapa:"cierre",
       titulo:`Generó ${posibles} ${posibles===1?"consulta":"consultas"} y no cerró ninguna`,
-      detalle:"El reel hizo su trabajo: pasó el embudo y la gente preguntó. Lo que se cae está después — el precio, la respuesta, o una objeción que no se resolvió. Cambiar el reel acá sería arreglar lo que no está roto.",
-      accion:"Revisá qué preguntaron y qué contestaste. Si la misma objeción se repite en varias consultas, esa objeción es el próximo reel."});
+      detalle:"El reel hizo su trabajo: pasó el embudo y la gente preguntó. Lo que se cae está después — el precio, la respuesta, o una objeción que no se resolvió. Cambiar el reel acá sería arreglar lo que no está roto."
+        +(posibles<CIERRE.minPieza?` Ojo: con ${posibles} ${posibles===1?"consulta":"consultas"} todavía puede ser azar; recién desde ${CIERRE.minPieza} el dato pesa.`:" Con este volumen ya no es casualidad."),
+      accion:posibles>=CIERRE.minPieza
+        ? "Revisá esas conversaciones y buscá dónde se cortan. La objeción que más se repite es la que tenés que responder dentro del próximo reel, antes de que la hagan."
+        : "Anotá qué preguntaron. Cuando junten unas cuantas vas a ver si se repite siempre la misma objeción."});
 
   if(uni===0 && tieneVenta)
     return Object.assign({},base,{nivel:"aviso",etapa:"conversion",
@@ -1534,6 +1568,58 @@ function diagnostico(it){
     accion:cierre!=null&&cierre<0.5
       ? `Reversionala, y en paralelo mirá las ${posibles} consultas que no cerraron: ahí está la objeción que te falta responder.`
       : "Reversionala con otro producto o superficie, y evaluala para pautar."});
+}
+
+/* ---- Conversaciones ----
+   Un interesado es alguien que pregunto por esa pieza y no compro.
+   Las conversaciones totales de una pieza son interesados + ventas.
+   Con pocas conversaciones no se puede juzgar el speech: dos consultas
+   sin cerrar es azar, cincuenta sin cerrar es un problema de guion. */
+const CIERRE={minPieza:5, minCuenta:10, tasaFloja:0.20, tasaBuena:0.40};
+const interesados = it => it.posiblesClientes||0;
+const conversaciones = it => interesados(it)+unidades(it);
+const tasaCierre = it => conversaciones(it) ? unidades(it)/conversaciones(it) : null;
+
+/** Lectura del speech de venta a nivel cuenta, no de una pieza suelta.
+ *  Responde: el contenido trae gente que pregunta, y esa gente compra? */
+function analisisCierre(items){
+  const arr=(items||publicados());
+  const totInt=arr.reduce((a,c)=>a+interesados(c),0);
+  const totVen=arr.reduce((a,c)=>a+unidades(c),0);
+  const totConv=totInt+totVen;
+  const tasa=totConv?totVen/totConv:null;
+  // la pieza que mas conversaciones genero: ese tema despierta demanda
+  const masConsultada=[...arr].sort((a,b)=>conversaciones(b)-conversaciones(a))[0];
+  const conVentas=arr.filter(c=>conversaciones(c)>0);
+  const mejorCierre=[...conVentas].sort((a,b)=>(tasaCierre(b)||0)-(tasaCierre(a)||0))[0];
+
+  let nivel,titulo,detalle,accion;
+  if(totConv===0){
+    nivel="sindatos"; titulo="Todavía no registraste conversaciones";
+    detalle="Cargá cuántos interesados dejó cada pieza para poder separar un problema de contenido de uno de venta.";
+    accion="";
+  }else if(totConv<CIERRE.minCuenta){
+    nivel="sindatos"; titulo=`Solo ${totConv} conversaciones registradas`;
+    detalle=`Con menos de ${CIERRE.minCuenta} no se puede concluir nada del speech: dos consultas que no cierran es azar.`;
+    accion="Seguí cargando interesados por pieza. Cuando pasen las 10, esto te dice si el problema es el contenido o la venta.";
+  }else if(totVen===0){
+    nivel="malo"; titulo=`${totConv} conversaciones y ninguna venta`;
+    detalle="El contenido está haciendo su trabajo: trae gente que pregunta. Lo que no está cerrando es la conversación. Con este volumen ya no es casualidad — es el speech.";
+    accion="Juntá las últimas 10 conversaciones y buscá en qué punto exacto se cortan: si es al decir el precio, si es al preguntar cómo se usa, o si se van sin responder. La objeción que más se repite es la que hay que responder antes de que la hagan.";
+  }else if(tasa<CIERRE.tasaFloja){
+    nivel="aviso"; titulo=`Cerrás ${pct(tasa)} de las conversaciones`;
+    detalle=`${totVen} ventas sobre ${totConv} conversaciones. De cada 10 personas que te escriben, ${Math.round(tasa*10)} compran. Hay margen grande en la conversación, no en el contenido.`;
+    accion="Mirá las que no cerraron y agrupá por motivo. Si el precio aparece seguido, el problema no es el precio: es que el valor no quedó claro antes de decirlo.";
+  }else if(tasa<CIERRE.tasaBuena){
+    nivel="aviso"; titulo=`Cerrás ${pct(tasa)} de las conversaciones`;
+    detalle=`${totVen} de ${totConv}. Es un ritmo razonable, pero todavía se pierden más de la mitad.`;
+    accion="Probá responder la objeción más repetida dentro del propio reel: el que llega ya convencido cierra solo.";
+  }else{
+    nivel="ok"; titulo=`Cerrás ${pct(tasa)} de las conversaciones`;
+    detalle=`${totVen} de ${totConv}. El speech funciona: quien pregunta, compra. El límite ahora es cuánta gente pregunta, no cómo les vendés.`;
+    accion="El cuello de botella se movió al contenido. Enfocá en piezas que generen más conversaciones, no en mejorar la venta.";
+  }
+  return {nivel,titulo,detalle,accion,totInt,totVen,totConv,tasa,masConsultada,mejorCierre};
 }
 
 /** Donde falla la cuenta en general, no una pieza suelta. Es la respuesta a
@@ -1618,7 +1704,8 @@ const METRICAS_CMP=[
   {l:"Compartidos",        get:c=>c.compartidos||0,                               fmt:num},
   {l:"Intención (guard+comp / alcance)",get:c=>c.alcance?((c.guardados||0)+(c.compartidos||0))/c.alcance:0,fmt:v=>(v*100).toFixed(2)+"%", tasa:true},
   {l:"Seguidores que trajo",get:c=>c.seguidoresGanados||0,                        fmt:v=>"+"+num(v)},
-  {l:"Posibles clientes",  get:c=>c.posiblesClientes||0,                          fmt:v=>num(v)+""},
+  {l:"Interesados (no compraron)",get:c=>interesados(c),                          fmt:v=>num(v)+""},
+  {l:"Conversaciones totales",get:c=>conversaciones(c),                            fmt:v=>num(v)+""},
   {l:"Unidades vendidas",  get:c=>unidades(c),                                    fmt:v=>v+" u", clave:true},
   {l:"Cierre (vendidas / preguntaron)",get:c=>{const u=unidades(c),pp=c.posiblesClientes||0;return (u+pp)?u/(u+pp):0;},fmt:v=>(v*100).toFixed(0)+"%", clave:true, tasa:true},
   {l:"Conversión",         get:c=>c.alcance?unidades(c)/c.alcance:0,              fmt:v=>(v*100).toFixed(2)+"%", clave:true, tasa:true},
@@ -1784,7 +1871,7 @@ function calendarioMes(){
 function calendarioTablero(){
   const cols=Object.entries(ESTADOS).map(([k,v])=>{
     const arr=state.contenido.filter(c=>c.estado===k).sort((a,b)=>pd(a.fecha)-pd(b.fecha));
-    return `<div style="min-width:210px;flex:1">
+    return `<div class="tablero-col${arr.length?"":" vacia"}">
       <div style="display:flex;align-items:center;gap:7px;padding:0 2px 9px">
         <span style="width:8px;height:8px;border-radius:2px;background:${v.c}"></span>
         <b style="font-size:12.5px">${v.t}</b>
@@ -1800,7 +1887,7 @@ function calendarioTablero(){
           ||`<div class="muted" style="font-size:11.5px;padding:10px 2px">Vacío</div>`}
       </div>
     </div>`;}).join("");
-  return `<div class="wrap" style="display:flex;gap:16px;align-items:flex-start;padding-bottom:6px">${cols}</div>`;
+  return `<div class="tablero">${cols}</div>`;
 }
 
 /** Balance: si un producto o un tipo de reel se está comiendo el calendario. */
@@ -2117,9 +2204,9 @@ function contenidoModal(id){
       </div>
       <div style="border-top:1px solid var(--border);padding-top:14px">
         <div class="field">
-          <label>Posibles clientes — preguntaron por este reel y no compraron</label>
+          <label>Interesados — preguntaron por este reel y no compraron</label>
           <input type="number" id="m_posibles" value="${d.posiblesClientes||0}" min="0" placeholder="0">
-          <div class="muted" style="font-size:11.5px">Sirve para saber si el reel no generó interés, o si generó interés y se cayó el cierre.</div>
+          <div class="muted" style="font-size:11.5px">Con las ventas arma las conversaciones totales de la pieza y su tasa de cierre.</div>
         </div>
       </div>
       <div style="border-top:1px solid var(--border);padding-top:14px">
