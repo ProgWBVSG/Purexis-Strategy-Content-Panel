@@ -407,10 +407,11 @@ const IC={
   ads:'<path d="m3 11 18-5v12L3 13v-2z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
   play:'<circle cx="12" cy="12" r="9"/><path d="M10 8.5v7l6-3.5z"/>',
   comparar:'<path d="M4 20V10M12 20V4M20 20v-7"/>',
+  calendario:'<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 10h18M8 2v4M16 2v4M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/>',
   config:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
 };
 const NAV=[
-  ["resumen","Resumen"],["contenido","Contenido"],["comparar","Comparar"],["ads","Meta Ads"],["metas","Metas"],
+  ["resumen","Resumen"],["contenido","Contenido"],["calendario","Calendario"],["comparar","Comparar"],["ads","Meta Ads"],["metas","Metas"],
   ["productos","Productos"],["metricas","Métricas"],["reportes","Reportes"],["recordatorios","Recordatorios"],
 ];
 
@@ -438,6 +439,7 @@ function hydrate(){
 function rowToContenido(r){
   return {id:r.id,titulo:r.titulo,tipo:r.tipo,canal:r.canal,pilar:r.pilar,estado:r.estado,fecha:r.fecha,
     producto:r.producto||"general",framework:r.framework||"",tipos:Array.isArray(r.tipos)?r.tipos:[],url:r.url||"",
+    impresiones:r.impresiones||0,duracionSeg:r.duracion_seg||0,tiempoMedioSeg:Number(r.tiempo_medio_seg)||0,envios:r.envios||0,
     vistas:r.vistas||0,alcance:r.alcance||0,likes:r.likes||0,comentarios:r.comentarios||0,
     guardados:r.guardados||0,compartidos:r.compartidos||0,gastoAnuncio:r.gasto_anuncio||0,
     seguidoresGanados:r.seguidores_ganados||0,
@@ -448,6 +450,7 @@ function rowToContenido(r){
 function contenidoToRow(o){
   return {id:o.id,titulo:o.titulo,tipo:o.tipo,canal:o.canal,pilar:o.pilar,estado:o.estado,fecha:o.fecha,
     producto:o.producto||"general",framework:o.framework||null,tipos:o.tipos||[],url:o.url||null,
+    impresiones:o.impresiones|0,duracion_seg:o.duracionSeg|0,tiempo_medio_seg:Number(o.tiempoMedioSeg)||0,envios:o.envios|0,
     vistas:o.vistas|0,alcance:o.alcance|0,likes:o.likes|0,comentarios:o.comentarios|0,
     guardados:o.guardados|0,compartidos:o.compartidos|0,gasto_anuncio:o.gastoAnuncio|0,
     seguidores_ganados:o.seguidoresGanados|0,
@@ -591,6 +594,7 @@ const ADS_CFG={
   // pedir 0,2% haría que hasta un reel que factura cientos de miles parezca flojo.
   refConv:0.0008,
   refIntencion:0.02,  // 2% de (guardados+compartidos) sobre alcance
+  refGuardados:0.012, // 1,2% de guardados sobre alcance ya es una pieza que la gente archiva
   refRetencion:1.0,   // vistas/alcance >= 1 significa que se revió
   refSeguidores:0.005,
   // volumen desde el cual una pieza demuestra que puede viajar sola
@@ -623,6 +627,46 @@ function alcanceMinimo(){
 /** ¿La pieza tiene volumen suficiente para que sus TASAS signifiquen algo?
  *  Con 10 personas alcanzadas, 20 compartidos dan "200% de intención": ruido, no señal. */
 const esConfiable=it=>(it.alcance||0)>=alcanceMinimo();
+/* ============================================================
+   EL EMBUDO — las tres etapas que deciden si un reel funciona.
+   Umbrales tomados de benchmarks públicos de reels (ver el plan):
+   gancho 50% mínimo, retención 50% si dura menos de 15s y 30% si
+   pasa de 30s. Se leen de arriba hacia abajo: si el gancho no pasa,
+   el resto del reel nunca llegó a jugarse.
+   ============================================================ */
+const EMBUDO={
+  ganchoMin:0.50, ganchoBueno:0.65,
+  // el umbral de retención depende de cuánto dura el reel
+  retencionMin:d=>d<=15?0.50:d<=30?0.40:0.30,
+  // envíos por alcance: Instagram los pesa 3-5 veces más que un like
+  enviosMin:0.005, enviosBueno:0.015,
+};
+
+/** Las tres señales del embudo. Devuelve null cuando falta el dato que la
+ *  compone, en vez de un cero — para poder distinguir "malo" de "sin medir". */
+function embudo(it){
+  const imp=it.impresiones||0, dur=it.duracionSeg||0, alc=it.alcance||0;
+  // Una pieza cargada antes de que existieran estos campos no tiene "0 envíos":
+  // tiene envíos sin medir. Contar ese 0 como real la castigaría por un dato
+  // que nunca se pidió.
+  const medida = imp>0 || dur>0 || (it.tiempoMedioSeg||0)>0 || (it.envios||0)>0;
+  return {
+    gancho:    imp>0 ? Math.min((it.vistas||0)/imp, 1) : null,
+    retencion: dur>0 ? Math.min((it.tiempoMedioSeg||0)/dur, 1) : null,
+    envios:    (medida&&alc>0) ? Math.min((it.envios||0)/alc, ADS_CFG.maxTasa) : null,
+    retencionMin: dur>0 ? EMBUDO.retencionMin(dur) : null,
+  };
+}
+/** Qué campos le faltan a una pieza para poder diagnosticarla entera. */
+function faltantes(it){
+  const f=[];
+  if(!(it.impresiones>0)) f.push("impresiones");
+  if(!(it.duracionSeg>0)) f.push("duración");
+  if(!(it.tiempoMedioSeg>0)) f.push("tiempo medio");
+  if(embudo(it).envios===null) f.push("envíos");
+  return f;
+}
+
 /** Tasas de una pieza, con techo sano: una tasa por encima de MAX_TASA es
  *  medición rota (compartidos > alcance, por ejemplo), no un récord. */
 function adsTasas(it){
@@ -647,6 +691,7 @@ function adsRefs(){
     intencion: Math.max(mx(t=>t.intencion), ADS_CFG.refIntencion),
     retencion: Math.max(mx(t=>t.retencion), ADS_CFG.refRetencion),
     seguidores:Math.max(mx(t=>t.seguidores),ADS_CFG.refSeguidores),
+    guardados: Math.max(pub.reduce((m,c)=>Math.max(m,(c.alcance?(c.guardados||0)/c.alcance:0)),0), ADS_CFG.refGuardados),
   };
 }
 
@@ -661,11 +706,28 @@ function adsEval(it,refs){
   // VOLUMEN como señal propia: en pauta, una pieza que ya viajó sola demuestra
   // que puede sostener entrega. Una tasa linda sobre 10 personas no demuestra nada.
   const volumen=Math.max(0,Math.min(1,alcance/ADS_CFG.alcanceConfiable));
+  const E=embudo(it);
+  // Pesos según lo que Instagram premia de verdad: tiempo de visualización
+  // primero, envíos por mensaje segundo (valen 3-5 likes). La conversión pesa
+  // alto porque acá el objetivo no es alcance, es vender.
+  const comps=[
+    {k:"conversion",peso:28,v:n(conv,refs.conv)},
+    {k:"retencion", peso:24,v:E.retencion!=null?Math.min(1,E.retencion/E.retencionMin):null},
+    {k:"envios",    peso:18,v:E.envios!=null?Math.min(1,E.envios/EMBUDO.enviosBueno):null},
+    {k:"gancho",    peso:14,v:E.gancho!=null?Math.min(1,E.gancho/EMBUDO.ganchoBueno):null},
+    {k:"guardados", peso:10,v:n(alcance?(it.guardados||0)/alcance:0,refs.guardados)},
+    {k:"volumen",   peso:6, v:volumen},
+  ];
+  // Si falta una señal, su peso se reparte entre las que sí hay. Contarla como
+  // cero castigaría a las piezas viejas por datos que todavía no cargamos.
+  const disp=comps.filter(c=>c.v!=null);
+  const pesoTotal=disp.reduce((a,c)=>a+c.peso,0)||1;
   const s={conv:n(conv,refs.conv),intencion:n(intencion,refs.intencion),
            retencion:n(retencion,refs.retencion),seguidores:n(segRate,refs.seguidores),volumen};
   const confiable=esConfiable(it);
   // sin volumen confiable el puntaje no se presenta como comparable
-  const score=confiable?Math.round(40*s.conv+20*s.intencion+20*s.retencion+10*s.seguidores+10*s.volumen):null;
+  const score=confiable?Math.round(disp.reduce((a,c)=>a+c.peso*c.v,0)/pesoTotal*100):null;
+  const cobertura=pesoTotal;   // cuánto del puntaje está respaldado por datos reales
 
   const tipos=it.tipos||[];
   const tieneVenta=tipos.includes("venta");
@@ -713,7 +775,8 @@ function adsEval(it,refs){
     estado="no";
     motivo=`Vendió ${uni} u pero las señales están flojas frente al resto de tu contenido. No conviene pautarla.`;
   }
-  return {score,estado,motivo,señales:s,conv,intencion,retencion,segRate,rpm,uni,tieneVenta};
+  return {score,estado,motivo,señales:s,conv,intencion,retencion,segRate,rpm,uni,tieneVenta,
+          embudo:E,cobertura,confiable,faltan:faltantes(it),alcance};
 }
 
 /** Todas las piezas evaluadas y ordenadas: primero lo accionable, después el resto. */
@@ -947,7 +1010,7 @@ function filaContenido(c){
     <td class="tnum">${c.estado==="publicado"?kfmt(c.vistas):'<span class="muted">—</span>'}</td>
     <td class="tnum sm-hide">${c.estado==="publicado"&&c.seguidoresGanados?"+"+kfmt(c.seguidoresGanados):'<span class="muted">—</span>'}</td>
     <td class="tnum" style="font-weight:600">${unidades(c)||0} u</td>
-    <td>${estadoChip(c.estado)}</td>
+    <td>${c.estado==="publicado"&&c.metricasCargadas?diagChip(c):estadoChip(c.estado)}</td>
     <td style="white-space:nowrap">
       ${c.url?`<a class="iconbtn" href="${esc(c.url)}" target="_blank" rel="noopener" title="Ver el video" style="display:inline-grid;text-decoration:none">${icon("play",15)}</a>`:""}
       <button class="iconbtn" data-open="${c.id}" title="Editar">${icon("config",15)}</button>
@@ -996,6 +1059,23 @@ Views.contenido=()=>{
   }
 
   return `
+  ${(function(){
+    const P=patronDeFallas();
+    if(P.total<2||!P.peor) return "";
+    const txt=PATRON_TXT[P.peor]; if(!txt) return "";
+    return `<div class="card pad" style="margin-bottom:16px;border-left:3px solid var(--accent)">
+      <div style="display:flex;gap:13px;align-items:flex-start">
+        <div style="flex:none;width:34px;height:34px;border-radius:10px;background:var(--accent-soft);color:var(--accent-ink);display:grid;place-items:center">${icon("metricas",18)}</div>
+        <div style="flex:1;min-width:0">
+          <div class="eyebrow" style="font-size:10px">Dónde se te cae el contenido</div>
+          <b style="font-size:14.5px;display:block;margin-top:3px">${txt.t}</b>
+          <div class="muted" style="font-size:13px;line-height:1.55;margin-top:5px">
+            ${P.cuantas} de ${P.total} piezas medidas se caen ahí. ${txt.d}
+          </div>
+        </div>
+      </div>
+    </div>`;
+  })()}
   <div class="section-h">
     <div><div class="eyebrow">Organización</div><h2 style="font-size:19px">Carpetas de contenido</h2></div>
     <span class="sp"></span>
@@ -1362,6 +1442,132 @@ function renderBusqueda(q){
 }
 
 /* ============================================================
+   DIAGNOSTICO — por que a esta pieza le fue como le fue.
+   Recorre el embudo de arriba hacia abajo y frena en el primer
+   eslabon que no pasa. El orden no es estetico: si el gancho no
+   retuvo, el medio del reel nunca llego a jugarse y culparlo seria
+   diagnosticar mal.
+   ============================================================ */
+const pct=v=>(v*100).toFixed(1)+"%";
+const DIAG_NIVEL={
+  ok:      {t:"Funcionó",       c:"var(--good)",  bg:"var(--good-soft)"},
+  aviso:   {t:"A medias",       c:"var(--warn)",  bg:"var(--warn-soft)"},
+  malo:    {t:"Falló",          c:"var(--bad)",   bg:"var(--bad-soft)"},
+  sindatos:{t:"Sin diagnóstico",c:"var(--muted)", bg:"var(--surface-3)"},
+};
+
+function diagnostico(it){
+  const E=embudo(it), alc=it.alcance||0, uni=unidades(it), faltan=faltantes(it);
+  const med=[];   // las mediciones que sí se pudieron hacer, para mostrar el número crudo
+  if(E.gancho!=null)    med.push({k:"Gancho",   v:E.gancho,    ref:EMBUDO.ganchoMin});
+  if(E.retencion!=null) med.push({k:"Retención",v:E.retencion, ref:E.retencionMin});
+  if(E.envios!=null)    med.push({k:"Envíos",   v:E.envios,    ref:EMBUDO.enviosMin});
+  const base={medidas:med,faltan};
+
+  if(it.estado!=="publicado")
+    return Object.assign({},base,{nivel:"sindatos",etapa:"—",titulo:"Todavía no está publicada",
+      detalle:"El diagnóstico corre sobre piezas publicadas.",accion:""});
+
+  if(!it.metricasCargadas)
+    return Object.assign({},base,{nivel:"sindatos",etapa:"—",titulo:"Faltan las métricas",
+      detalle:"Sin números no hay nada que leer.",
+      accion:"Abrí las estadísticas del reel y cargá al menos alcance, impresiones, duración y tiempo medio."});
+
+  if(alc<alcanceMinimo())
+    return Object.assign({},base,{nivel:"sindatos",etapa:"alcance",titulo:`Solo ${num(alc)} de alcance`,
+      detalle:`Con tan poca gente cualquier porcentaje es ruido: dos compartidos sobre ocho personas dan 25% y no significan nada. El mínimo para leer algo es ${num(alcanceMinimo())}.`,
+      accion:"No hay nada que corregir acá. La pieza no llegó a distribuirse lo suficiente como para dejar señal."});
+
+  // ETAPA 1 — el gancho. Si no pasa, nada de lo que sigue tuvo oportunidad.
+  if(E.gancho!=null && E.gancho<EMBUDO.ganchoMin)
+    return Object.assign({},base,{nivel:"malo",etapa:"gancho",
+      titulo:`El gancho no pasó: ${pct(E.gancho)}`,
+      detalle:`De cada 100 personas a las que Instagram se lo mostró, solo ${Math.round(E.gancho*100)} se quedaron a mirarlo. El mínimo es ${pct(EMBUDO.ganchoMin)}. La decisión de quedarse o seguir scrolleando se toma en 1,7 segundos: esto se define antes de que empiece el contenido.`,
+      accion:"Reescribí solo los primeros 3 segundos, nada más. Probá abrir con el resultado ya resuelto — el después del antes/después — en vez de presentar el problema. Si el reel abre explicando, ya perdiste."});
+
+  // ETAPA 2 — la retención. El gancho funcionó; el problema está en el medio.
+  if(E.retencion!=null && E.retencion<E.retencionMin)
+    return Object.assign({},base,{nivel:"malo",etapa:"retencion",
+      titulo:`Se cayó en el medio: retuvo ${pct(E.retencion)}`,
+      detalle:`El gancho funcionó${E.gancho!=null?` (${pct(E.gancho)})`:""} pero se quedaron ${(it.tiempoMedioSeg||0).toFixed(1)}s de ${it.duracionSeg}s. Para un reel de esta duración el piso es ${pct(E.retencionMin)}. El problema no está en la apertura ni en el cierre: está en el medio.`,
+      accion:"Sacá el aire muerto y adelantá la transformación. Si el momento en que se ve el resultado llega después de la mitad, llegó tarde."});
+
+  // ETAPA 3 — los envíos. Retuvo, pero no dio ganas de mostrárselo a nadie.
+  if(E.envios!=null && E.envios<EMBUDO.enviosMin)
+    return Object.assign({},base,{nivel:"aviso",etapa:"envios",
+      titulo:"Retuvo, pero nadie lo mandó",
+      detalle:`${num(it.envios||0)} envíos por mensaje sobre ${num(alc)} de alcance (${pct(E.envios)}). Los envíos pesan entre 3 y 5 veces más que un like para que Instagram lo reparta, y son lo que hace que salga de tus seguidores.`,
+      accion:"Falta el momento de mostrárselo a alguien: un dato que sorprenda, o un resultado tan visible que dé ganas de mandárselo a la persona que tiene ese problema en su casa."});
+
+  // ETAPA 4 — retuvo y viajó, pero no vendió.
+  const tieneVenta=(it.tipos||[]).includes("venta");
+  if(uni===0 && tieneVenta)
+    return Object.assign({},base,{nivel:"aviso",etapa:"conversion",
+      titulo:"Funcionó como contenido, falló como venta",
+      detalle:"Pasó las tres etapas del embudo y no registró ninguna venta. El problema ya no es la atención: es que la atención no se convirtió en intención de compra.",
+      accion:"Revisá dos cosas: si el reel muestra el dolor con la escena concreta en vez del producto, y si hay un solo CTA al final. Dos CTAs es lo mismo que ninguno."});
+
+  if(uni===0)
+    return Object.assign({},base,{nivel:"aviso",etapa:"estructura",
+      titulo:"Buenas señales, sin estructura de venta",
+      detalle:"Retuvo y se compartió, pero está marcada como valor o tendencia. Ese alcance no está pensado para convertir.",
+      accion:"Si el tema funcionó, hacé una versión con estructura de venta: mismo tema, apertura de dolor y un CTA."});
+
+  return Object.assign({},base,{nivel:"ok",etapa:"completo",
+    titulo:`Funcionó de punta a punta: ${uni} ${uni===1?"unidad":"unidades"}`,
+    detalle:`Retuvo${E.retencion!=null?` (${pct(E.retencion)})`:""}, se compartió${E.envios!=null?` (${pct(E.envios)} de envíos)`:""} y vendió. Esta es la combinación que hay que repetir.`,
+    accion:"Reversionala con otro producto o superficie, y evaluala para pautar."});
+}
+
+/** Donde falla la cuenta en general, no una pieza suelta. Es la respuesta a
+ *  "por que fallamos en el engagement": si 5 de 8 mueren en el gancho, el
+ *  problema es de aperturas, no de temas. */
+function patronDeFallas(){
+  const pubs=publicados().filter(c=>c.metricasCargadas&&(c.alcance||0)>=alcanceMinimo());
+  const por={gancho:0,retencion:0,envios:0,conversion:0,estructura:0,completo:0};
+  pubs.forEach(c=>{const d=diagnostico(c); if(por[d.etapa]!==undefined)por[d.etapa]++;});
+  const orden=["gancho","retencion","envios","conversion","estructura"];
+  let peor=null,max=0;
+  orden.forEach(k=>{if(por[k]>max){max=por[k];peor=k;}});
+  return {total:pubs.length,por,peor,cuantas:max};
+}
+const PATRON_TXT={
+  gancho:{t:"El cuello de botella está en las aperturas",
+    d:"La mayoría de tus piezas no pasa los primeros 3 segundos. Es el arreglo más rentable que tenés a mano: no hay que cambiar los temas, solo cómo empiezan."},
+  retencion:{t:"El cuello de botella está en el medio",
+    d:"Los ganchos funcionan y la gente entra, pero se van antes de la mitad. Revisá el ritmo y en qué segundo aparece la transformación."},
+  envios:{t:"Falta el motivo para compartir",
+    d:"Retenés bien pero no te mandan los reels por mensaje, que es lo que los saca de tus seguidores."},
+  conversion:{t:"Atención sí, compra no",
+    d:"El contenido funciona y no convierte. El problema está en el dolor mostrado y en el CTA, no en el alcance."},
+  estructura:{t:"Alcance sin intención de venta",
+    d:"Lo que funciona son piezas de valor o tendencia. Traen gente, no compradores."},
+};
+
+/** Diagnostico de una pieza pautada: la plata cambia las preguntas. */
+function diagAnuncio(it){
+  const gasto=it.gastoAnuncio||0, ing=ingresosItem(it), uni=unidades(it);
+  if(!gasto) return null;
+  const roas=ing/gasto, costoUnidad=uni?gasto/uni:null;
+  const cpm=(it.impresiones||0)?gasto/it.impresiones*1000:null;
+  let nivel,titulo,accion;
+  if(uni===0){
+    nivel="malo"; titulo=`${money(gasto)} gastados, cero ventas`;
+    accion="Cortala. Antes de volver a pautar este creativo, arreglá lo que marque el diagnóstico orgánico: pautar un reel que no convierte solo compra alcance.";
+  }else if(roas<1){
+    nivel="malo"; titulo=`ROAS ${roas.toFixed(2)}× — perdés plata`;
+    accion=`Cada peso invertido devuelve ${money(roas)}. Cortala, o bajá el costo por unidad, hoy en ${money(costoUnidad)}.`;
+  }else if(roas<2){
+    nivel="aviso"; titulo=`ROAS ${roas.toFixed(2)}× — apenas cierra`;
+    accion="Cubre el gasto pero deja poco margen. Probá otra apertura del mismo reel antes de escalar presupuesto.";
+  }else{
+    nivel="ok"; titulo=`ROAS ${roas.toFixed(2)}× — escalá`;
+    accion=`Cada peso devuelve ${money(roas)}. Subí presupuesto de a poco y vigilá que el costo por unidad (${money(costoUnidad)}) no se dispare al ampliar público.`;
+  }
+  return {nivel,titulo,accion,roas,costoUnidad,cpm,gasto,ing};
+}
+
+/* ============================================================
    COMPARADOR DE PIEZAS
    Pensado para el flujo real: se hacen varias versiones del mismo
    reel y hay que ver cuál funcionó mejor — no solo en alcance, sino
@@ -1501,7 +1707,190 @@ Views.comparar=()=>{
     :`<div class="card"><div class="empty">${icon("metricas",30)}<div>Elegí al menos 2 piezas para compararlas.</div></div></div>`}`;
 };
 
+/* ============================================================
+   CALENDARIO Y TUBERÍA
+   Los estados y las fechas ya estaban guardados desde el principio;
+   lo único que faltaba era mirarlos. Tres lecturas del mismo dato:
+   cuándo sale cada cosa, en qué etapa está, y si estás cargando de
+   más un producto sin darte cuenta.
+   ============================================================ */
+let calMes=new Date(HOY.getFullYear(),HOY.getMonth(),1);
+let calVista="mes";   // mes | tablero
+
+function mismoDia(a,b){return a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();}
+
+/** Chip de una pieza dentro de una celda del calendario. */
+function calChip(c){
+  const carp=CMAP[c.producto]||CMAP.general;
+  const pub=c.estado==="publicado";
+  return `<button data-open="${c.id}" title="${esc(c.titulo)} · ${ESTADOS[c.estado].t}"
+    style="display:flex;align-items:center;gap:5px;width:100%;text-align:left;border:none;cursor:pointer;
+    background:${pub?`color-mix(in srgb,${carp.color} 16%,transparent)`:"var(--surface-2)"};
+    border-left:2px solid ${carp.color};border-radius:5px;padding:3px 5px;margin-bottom:3px;
+    font-size:10.5px;font-weight:600;color:var(--text);overflow:hidden">
+    <span style="width:5px;height:5px;border-radius:50%;flex:none;background:${pub?"var(--good)":ESTADOS[c.estado].c}"></span>
+    <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.titulo)}</span>
+  </button>`;
+}
+
+function calendarioMes(){
+  const y=calMes.getFullYear(), m=calMes.getMonth();
+  const primero=new Date(y,m,1); primero.setHours(12,0,0,0);
+  const arranque=weekStart(primero);                  // la grilla empieza el lunes
+  const celdas=[];
+  for(let i=0;i<42;i++){
+    const dia=addDays(arranque,i);
+    const iso=fmtISO(dia);
+    const piezas=state.contenido.filter(c=>c.fecha===iso);
+    const delMes=dia.getMonth()===m;
+    const hoy=mismoDia(dia,HOY);
+    celdas.push(`<div style="min-height:92px;padding:6px;border-right:1px solid var(--border-2);border-bottom:1px solid var(--border-2);
+      background:${hoy?"var(--accent-soft)":delMes?"var(--surface)":"var(--surface-2)"};opacity:${delMes?1:.5}">
+      <div class="tnum" style="font-size:11px;font-weight:${hoy?"800":"600"};color:${hoy?"var(--accent-ink)":"var(--muted-2)"};margin-bottom:4px">${dia.getDate()}</div>
+      ${piezas.map(calChip).join("")}
+    </div>`);
+    if(i>=34 && dia.getMonth()!==m && weekStart(dia).getMonth()!==m) break;
+  }
+  const dias=["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
+  return `<div class="tablecard" style="overflow:hidden">
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);background:var(--surface-2)">
+      ${dias.map(d=>`<div style="padding:9px 6px;font-size:10.5px;font-weight:700;color:var(--muted-2);text-align:center;letter-spacing:.06em">${d}</div>`).join("")}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr)">${celdas.join("")}</div>
+  </div>`;
+}
+
+function calendarioTablero(){
+  const cols=Object.entries(ESTADOS).map(([k,v])=>{
+    const arr=state.contenido.filter(c=>c.estado===k).sort((a,b)=>pd(a.fecha)-pd(b.fecha));
+    return `<div style="min-width:210px;flex:1">
+      <div style="display:flex;align-items:center;gap:7px;padding:0 2px 9px">
+        <span style="width:8px;height:8px;border-radius:2px;background:${v.c}"></span>
+        <b style="font-size:12.5px">${v.t}</b>
+        <span class="chip" style="background:var(--surface-3);color:var(--muted)">${arr.length}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:7px">
+        ${arr.map(c=>{const carp=CMAP[c.producto]||CMAP.general;
+          return `<button class="card" data-open="${c.id}" style="text-align:left;cursor:pointer;padding:11px 12px;border-left:3px solid ${carp.color}">
+            <b style="font-size:12.5px;display:block;line-height:1.35">${esc(c.titulo)}</b>
+            <div class="muted" style="font-size:11px;margin-top:4px">${fdate(c.fecha)} · ${carp.nombre}</div>
+            ${c.estado==="publicado"&&c.metricasCargadas?`<div style="margin-top:6px">${diagChip(c)}</div>`:""}
+          </button>`;}).join("")
+          ||`<div class="muted" style="font-size:11.5px;padding:10px 2px">Vacío</div>`}
+      </div>
+    </div>`;}).join("");
+  return `<div class="wrap" style="display:flex;gap:16px;align-items:flex-start;padding-bottom:6px">${cols}</div>`;
+}
+
+/** Balance: si un producto o un tipo de reel se está comiendo el calendario. */
+function calBalance(){
+  const y=calMes.getFullYear(), m=calMes.getMonth();
+  const delMes=state.contenido.filter(c=>{const d=pd(c.fecha);return d.getFullYear()===y&&d.getMonth()===m;});
+  if(!delMes.length) return "";
+  const porCarpeta=CARPETAS.map(k=>({...k,n:delMes.filter(c=>(c.producto||"general")===k.id).length})).filter(x=>x.n);
+  const porTipo=Object.entries(TIPOS_REEL).map(([k,v])=>({...v,k,n:delMes.filter(c=>(c.tipos||[]).includes(k)).length})).filter(x=>x.n);
+  const max=Math.max(...porCarpeta.map(x=>x.n));
+  const dominante=porCarpeta.find(x=>x.n===max);
+  const concentrado=delMes.length>=4 && max/delMes.length>0.6;
+  const conVenta=delMes.filter(c=>(c.tipos||[]).includes("venta")).length;
+  const pocaVenta=delMes.length>=4 && conVenta/delMes.length<0.34;
+
+  const barra=(arr,total)=>`<div style="display:flex;height:8px;border-radius:20px;overflow:hidden;background:var(--surface-3)">
+    ${arr.map(x=>`<div title="${x.nombre||x.t}: ${x.n}" style="width:${x.n/total*100}%;background:${x.color||x.c}"></div>`).join("")}
+  </div>`;
+
+  return `<div class="grid" style="grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+    <div class="card pad">
+      <div class="eyebrow" style="margin-bottom:9px">Reparto por producto · ${MESL[m]}</div>
+      ${barra(porCarpeta,delMes.length)}
+      <div class="legend" style="margin-top:11px">${porCarpeta.map(x=>`<span><i style="background:${x.color}"></i>${x.nombre} <b>${x.n}</b></span>`).join("")}</div>
+      ${concentrado?`<div class="muted" style="font-size:11.5px;margin-top:10px;color:var(--warn)">
+        ${dominante.nombre} se lleva ${Math.round(max/delMes.length*100)}% del mes. Cada superficie de la casa es un sub-avatar distinto: concentrarte en una deja las otras sin cubrir.</div>`:""}
+    </div>
+    <div class="card pad">
+      <div class="eyebrow" style="margin-bottom:9px">Reparto por tipo de reel</div>
+      ${porTipo.length?barra(porTipo,porTipo.reduce((a,x)=>a+x.n,0)):`<div class="muted" style="font-size:12px">Sin tipos marcados este mes.</div>`}
+      ${porTipo.length?`<div class="legend" style="margin-top:11px">${porTipo.map(x=>`<span><i style="background:${x.c}"></i>${x.t} <b>${x.n}</b></span>`).join("")}</div>`:""}
+      ${pocaVenta?`<div class="muted" style="font-size:11.5px;margin-top:10px;color:var(--warn)">
+        Solo ${conVenta} de ${delMes.length} piezas tienen estructura de venta. El resto trae gente, no compradores.</div>`:""}
+    </div>
+  </div>`;
+}
+
+Views.calendario=()=>{
+  const y=calMes.getFullYear(), m=calMes.getMonth();
+  const delMes=state.contenido.filter(c=>{const d=pd(c.fecha);return d.getFullYear()===y&&d.getMonth()===m;});
+  return `
+  <div class="section-h">
+    <div><div class="eyebrow">Planificación</div><h2 style="font-size:19px">Calendario</h2></div>
+    <span class="sp"></span>
+    <div class="seg">
+      <button data-cal="mes" class="${calVista==="mes"?"on":""}">Mes</button>
+      <button data-cal="tablero" class="${calVista==="tablero"?"on":""}">Tablero</button>
+    </div>
+    <button class="btn sm pri" data-action="newContenido">+ Nueva pieza</button>
+  </div>
+
+  ${calVista==="mes"?`
+  <div class="section-h" style="margin-bottom:12px">
+    <button class="iconbtn" data-cal-nav="-1" title="Mes anterior">‹</button>
+    <b style="font-size:15px;min-width:150px">${MESL[m]} ${y}</b>
+    <button class="iconbtn" data-cal-nav="1" title="Mes siguiente">›</button>
+    <button class="btn sm" data-cal-nav="0">Hoy</button>
+    <span class="sp"></span>
+    <span class="muted" style="font-size:12px">${delMes.length} pieza${delMes.length!==1?"s":""} este mes</span>
+  </div>
+  ${calendarioMes()}
+  ${calBalance()}
+  `:`
+  <div class="muted" style="font-size:12.5px;margin-bottom:14px">Cada pieza en la etapa donde está. Tocá una para abrirla.</div>
+  ${calendarioTablero()}
+  `}`;
+};
+
 /* ---------- META ADS ---------- */
+/** Bloque de diagnóstico: el veredicto, los números que lo respaldan y qué hacer. */
+function diagBloque(it){
+  const d=diagnostico(it), n=DIAG_NIVEL[d.nivel];
+  const ads=diagAnuncio(it);
+  const barras=d.medidas.map(m=>{
+    const pasa=m.v>=m.ref, ancho=Math.max(3,Math.min(100,m.v/Math.max(m.ref*2,0.0001)*100));
+    return `<div>
+      <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px">
+        <span class="muted" style="font-weight:600">${m.k}</span>
+        <span class="tnum" style="font-weight:700;color:${pasa?"var(--good)":"var(--bad)"}">${pct(m.v)}
+          <span class="muted" style="font-weight:500">/ ${pct(m.ref)}</span></span>
+      </div>
+      <div class="pbar" style="height:6px"><i style="width:${ancho}%;background:${pasa?"var(--good)":"var(--bad)"}"></i></div>
+    </div>`;}).join("");
+
+  return `<div class="card pad" style="border-left:3px solid ${n.c};background:${n.bg}22">
+    <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+      <span class="chip" style="background:${n.bg};color:${n.c}">${n.t}</span>
+      <b style="font-size:14.5px">${esc(d.titulo)}</b>
+    </div>
+    <p class="muted" style="font-size:13px;line-height:1.55;margin:9px 0 0">${d.detalle}</p>
+    ${d.accion?`<div style="margin-top:11px;padding:11px 13px;background:var(--surface-2);border-radius:9px">
+      <div class="eyebrow" style="font-size:10px;margin-bottom:5px">Qué hacer</div>
+      <div style="font-size:13px;line-height:1.55">${d.accion}</div></div>`:""}
+    ${barras?`<div style="display:grid;gap:9px;margin-top:13px">${barras}</div>`:""}
+    ${d.faltan.length?`<div class="muted" style="font-size:11.5px;margin-top:11px">Para el diagnóstico completo falta cargar: <b style="color:var(--warn)">${d.faltan.join(", ")}</b>.</div>`:""}
+    ${ads?`<div style="margin-top:13px;padding-top:12px;border-top:1px solid var(--border)">
+      <div class="eyebrow" style="font-size:10px;margin-bottom:6px">Como anuncio</div>
+      <b style="font-size:13.5px;color:${DIAG_NIVEL[ads.nivel].c}">${ads.titulo}</b>
+      <div class="muted" style="font-size:12.5px;line-height:1.5;margin-top:5px">${ads.accion}</div>
+    </div>`:""}
+  </div>`;
+}
+
+/** Chip compacto para la tabla. */
+function diagChip(it){
+  const d=diagnostico(it), n=DIAG_NIVEL[d.nivel];
+  const etiqueta=d.nivel==="sindatos"?"s/d":{gancho:"Gancho",retencion:"Retención",envios:"Envíos",
+    conversion:"No vendió",estructura:"Sin venta",completo:"Completo",alcance:"Poco alcance"}[d.etapa]||n.t;
+  return `<span class="chip" style="background:${n.bg};color:${n.c}" title="${esc(d.titulo)}">${etiqueta}</span>`;
+}
+
 function tipoChips(tipos){
   if(!tipos||!tipos.length)return `<span class="chip" style="background:var(--surface-3);color:var(--muted-2)">sin tipo</span>`;
   return tipos.map(k=>{const v=TIPOS_REEL[k];return v?`<span class="chip" style="background:${v.bg};color:${v.c}">${v.t}</span>`:"";}).join(" ");
@@ -1659,6 +2048,7 @@ function contenidoModal(id){
   modal(`
     <div class="mh"><h3>${isNew?"Nueva pieza":"Editar pieza"}</h3><button class="iconbtn" data-action="closeModal">✕</button></div>
     <div class="mbody">
+      ${!isNew&&d.estado==="publicado"?diagBloque(d):""}
       <div class="field"><label>Título</label><input id="m_titulo" value="${esc(d.titulo||"")}" placeholder="Ej: Sarro del inodoro en 3 min"></div>
       <div class="field">
         <label>Link del video ${d.url?`<a href="${esc(d.url)}" target="_blank" rel="noopener" style="color:var(--accent-ink);text-decoration:none;font-weight:700">· abrir ↗</a>`:""}</label>
@@ -1695,7 +2085,17 @@ function contenidoModal(id){
         <div class="field"><label>Inversión en ads ($)</label><input type="number" id="m_gasto" value="${d.gastoAnuncio||0}" min="0"></div>
       </div>
       <div style="border-top:1px solid var(--border);padding-top:14px">
-        <div class="eyebrow" style="margin-bottom:10px">Métricas (una vez publicado)</div>
+        <div class="eyebrow" style="margin-bottom:4px">Las que deciden el alcance</div>
+        <div class="muted" style="font-size:11.5px;margin-bottom:10px">Estas cuatro son las que permiten el diagnóstico. Están en la pantalla de estadísticas del reel.</div>
+        <div class="f4">
+          <div class="field"><label>Duración (seg)</label><input type="number" id="m_duracion" value="${d.duracionSeg||0}" min="0" placeholder="18"></div>
+          <div class="field"><label>Tiempo medio (seg)</label><input type="number" id="m_tmedio" step="0.1" value="${d.tiempoMedioSeg||0}" min="0" placeholder="7.4"></div>
+          <div class="field"><label>Impresiones</label><input type="number" id="m_impresiones" value="${d.impresiones||0}" min="0"></div>
+          <div class="field"><label>Envíos (mensajes)</label><input type="number" id="m_envios" value="${d.envios||0}" min="0"></div>
+        </div>
+      </div>
+      <div style="border-top:1px solid var(--border);padding-top:14px">
+        <div class="eyebrow" style="margin-bottom:10px">El resto de las métricas</div>
         <div class="f4">
           <div class="field"><label>Vistas</label><input type="number" id="m_vistas" value="${d.vistas||0}"></div>
           <div class="field"><label>Alcance</label><input type="number" id="m_alcance" value="${d.alcance||0}"></div>
@@ -1832,6 +2232,7 @@ function saveContenido(id){
     producto:g("m_producto").value,framework:g("m_framework").value||"",tipos:[...(MODAL_TIPOS||[])],
     pilar:g("m_pilar").value,estado:g("m_estado").value,fecha:g("m_fecha").value,gastoAnuncio:gn("m_gasto"),
     vistas:gn("m_vistas"),alcance:gn("m_alcance"),likes:gn("m_likes"),comentarios:gn("m_comentarios"),
+    duracionSeg:gn("m_duracion"),tiempoMedioSeg:gn("m_tmedio"),impresiones:gn("m_impresiones"),envios:gn("m_envios"),
     guardados:gn("m_guardados"),compartidos:gn("m_compartidos"),seguidoresGanados:gn("m_seguidores"),
     // si cargó vistas o alcance, la pieza YA tiene métricas: no depende de acordarse del tilde
     ventas,preciosSnapshot:snap,
@@ -1876,7 +2277,7 @@ function toast(msg){const t=document.createElement("div");t.textContent=msg;t.st
    ROUTER / RENDER
    ============================================================ */
 let current="resumen";
-const TITLES={resumen:"Resumen",contenido:"Contenido",comparar:"Comparar",ads:"Meta Ads",metas:"Metas",productos:"Productos",metricas:"Métricas",reportes:"Reportes",recordatorios:"Recordatorios",config:"Configuración"};
+const TITLES={resumen:"Resumen",contenido:"Contenido",calendario:"Calendario",comparar:"Comparar",ads:"Meta Ads",metas:"Metas",productos:"Productos",metricas:"Métricas",reportes:"Reportes",recordatorios:"Recordatorios",config:"Configuración"};
 function buildNav(){
   const nav=document.getElementById("nav");const rem=reminders();
   nav.innerHTML=`<div class="lbl">Gestión</div>`+NAV.map(([v,t])=>`<a data-view="${v}" class="${v===current?"on":""}">${icon(v)}<span>${t}</span>${v==="recordatorios"&&rem.total?`<span class="cnt">${rem.total}</span>`:""}</a>`).join("");
@@ -1924,7 +2325,7 @@ document.addEventListener("click",e=>{
   if(e.target.closest("a[href]"))return;
   // click en el fondo del overlay (fuera del cuadro) cierra el modal; clicks adentro siguen su curso
   if(e.target.closest(".overlay")&&!e.target.closest(".modal")){closeModal();return;}
-  const t=e.target.closest("[data-view],[data-action],[data-open],[data-savecont],[data-delcont],[data-editmeta],[data-delmeta],[data-savemeta],[data-met],[data-carpeta],[data-ads],[data-cmp],[data-grupo]");
+  const t=e.target.closest("[data-view],[data-action],[data-open],[data-savecont],[data-delcont],[data-editmeta],[data-delmeta],[data-savemeta],[data-met],[data-carpeta],[data-ads],[data-cmp],[data-grupo],[data-cal],[data-cal-nav]");
   if(!t)return;
   if(t.dataset.carpeta){contFilter.carpeta=t.dataset.carpeta;render();return;}
   if(t.dataset.cmp){
@@ -1932,6 +2333,13 @@ document.addEventListener("click",e=>{
     if(comparar.includes(id))comparar=comparar.filter(x=>x!==id);
     else if(comparar.length>=4)toast("Máximo 4 piezas a la vez");
     else comparar.push(id);
+    render();return;
+  }
+  if(t.dataset.cal){calVista=t.dataset.cal;render();return;}
+  if(t.dataset.calNav!==undefined){
+    const n=+t.dataset.calNav;
+    calMes = n===0 ? new Date(HOY.getFullYear(),HOY.getMonth(),1)
+                   : new Date(calMes.getFullYear(),calMes.getMonth()+n,1);
     render();return;
   }
   if(t.dataset.grupo){comparar=gruposDeVersiones()[+t.dataset.grupo].arr.slice(0,4).map(c=>c.id);go("comparar");return;}
