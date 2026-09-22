@@ -528,7 +528,21 @@ function metaToRow(o){return {id:o.id,titulo:o.titulo,tipo:o.tipo,metrica:o.metr
 
 const DB={
   capName(){return "Supabase — sincroniza entre todos tus dispositivos";},
+  /* Estado de conexión. Mostrar ceros cuando la base no responde es
+     indistinguible de haber perdido los datos: el panel tiene que
+     decirlo, no dejar que el usuario lo deduzca mal. */
+  conexion:{ok:true,motivo:"",detalle:""},
+  _falla(tabla,error){
+    const msg=(error&&error.message)||String(error||"");
+    // sin red o dominio caído: el proyecto está pausado o no responde
+    const red=/failed to fetch|networkerror|fetch failed|load failed|ENOTFOUND|ERR_NAME/i.test(msg);
+    this.conexion={ok:false,
+      motivo:red?"sin_conexion":"error",
+      detalle:red?"No se pudo contactar a la base de datos.":`La tabla "${tabla}" devolvió: ${msg}`};
+    console.warn("DB "+tabla+":",msg);
+  },
   async init(){
+    this.conexion={ok:true,motivo:"",detalle:""};
     await Promise.all([this._loadContenido(),this._loadMetas(),this._loadConfig(),this._loadMeliSync(),this._loadGuia(),this._loadBacklog()]);
     this._watchRealtime();
     // La guía se siembra sola la primera vez que la tabla existe y está vacía.
@@ -537,15 +551,24 @@ const DB={
   },
   guiaOk:false,
   async _loadGuia(){
-    const {data,error}=await sb.from("guia").select("*");
-    if(error){this.guiaOk=false;return;}   // la tabla todavía no existe: no es un error del panel
+    let data=null;
+    try{
+      const r=await sb.from("guia").select("*");
+      // una tabla que no existe es benigno; que no haya red, no
+      if(r.error){this.guiaOk=false;if(/fetch|network/i.test(r.error.message||""))this._falla("guia",r.error);return;}
+      data=r.data;
+    }catch(e){this.guiaOk=false;this._falla("guia",e);return;}
     this.guiaOk=true;
     state.guia=(data||[]).map(r=>({id:r.id,capitulo:r.capitulo,orden:r.orden||0,titulo:r.titulo||"",contenido:r.contenido||"",
       adjuntos:Array.isArray(r.adjuntos)?r.adjuntos:[],actualizado:r.actualizado}));
   },
   async _loadBacklog(){
-    const {data,error}=await sb.from("backlog").select("*");
-    if(error)return;   // la tabla todavía no existe
+    let data=null;
+    try{
+      const r=await sb.from("backlog").select("*");
+      if(r.error){if(/fetch|network/i.test(r.error.message||""))this._falla("backlog",r.error);return;}
+      data=r.data;
+    }catch(e){this._falla("backlog",e);return;}
     state.backlog=(data||[]).map(r=>({id:r.id,titulo:r.titulo||"",clase:r.clase||"superficie",producto:r.producto||"general",
       pieza:r.pieza||"venta",origen:r.origen||"casa",estado:r.estado||"disponible",prioridad:r.prioridad||2,nota:r.nota||"",sesion:r.sesion}));
   },
@@ -554,25 +577,36 @@ const DB={
   async upsertGuia(o){const {error}=await sb.from("guia").upsert({id:o.id,capitulo:o.capitulo,orden:o.orden|0,titulo:o.titulo,contenido:o.contenido,adjuntos:o.adjuntos||[],actualizado:o.actualizado||new Date().toISOString()});if(error)console.warn("upsertGuia:",error.message);},
   async deleteGuia(id){const {error}=await sb.from("guia").delete().eq("id",id);if(error)console.warn("deleteGuia:",error.message);},
   async _loadContenido(){
-    const {data,error}=await sb.from("contenido").select("*").order("fecha",{ascending:false});
-    if(error){console.warn("contenido:",error.message);return;}
-    state.contenido=(data||[]).map(rowToContenido);
+    try{
+      const {data,error}=await sb.from("contenido").select("*").order("fecha",{ascending:false});
+      if(error){this._falla("contenido",error);return;}
+      state.contenido=(data||[]).map(rowToContenido);
+    }catch(e){this._falla("contenido",e);}
   },
   async _loadMetas(){
-    const {data,error}=await sb.from("metas").select("*");
-    if(error){console.warn("metas:",error.message);return;}
-    state.metas=(data||[]).map(rowToMeta);
+    try{
+      const {data,error}=await sb.from("metas").select("*");
+      if(error){this._falla("metas",error);return;}
+      state.metas=(data||[]).map(rowToMeta);
+    }catch(e){this._falla("metas",e);}
   },
   async _loadConfig(){
-    const {data,error}=await sb.from("config").select("*").eq("id","app").maybeSingle();
-    if(error)console.warn("config:",error.message);
+    let data=null;
+    try{
+      const r=await sb.from("config").select("*").eq("id","app").maybeSingle();
+      data=r.data; if(r.error)this._falla("config",r.error);
+    }catch(e){this._falla("config",e);}
     state.config={seguidoresActual:data?.seguidores_actual||0,seguidoresInicial:data?.seguidores_inicial||0,
       diasMetricas:data?.dias_metricas||4,precios:data?.precios||{},produccion:data?.produccion||{}};
     hydrate();
   },
   async _loadMeliSync(){
-    const {data,error}=await sb.from("precios_meli").select("*");
-    if(error){console.warn("precios_meli:",error.message);return;}
+    let data=null;
+    try{
+      const r=await sb.from("precios_meli").select("*");
+      if(r.error){this._falla("precios_meli",r.error);return;}
+      data=r.data;
+    }catch(e){this._falla("precios_meli",e);return;}
     const sync={};
     (data||[]).forEach(r=>{sync[r.producto_id]={precio:r.precio,anterior:r.anterior,moneda:r.moneda,permalink:r.permalink,actualizado:r.actualizado};});
     MELI_SYNC=sync;
@@ -2863,8 +2897,33 @@ function buildNav(){
   nav.innerHTML=`<div class="lbl">Gestión</div>`+NAV.map(([v,t])=>`<a data-view="${v}" class="${v===current?"on":""}">${icon(v)}<span>${t}</span>${v==="recordatorios"&&rem.total?`<span class="cnt">${rem.total}</span>`:""}</a>`).join("");
   document.querySelector(".side-foot .nav").innerHTML=`<a data-view="config" class="${current==="config"?"on":""}">${icon("config")}<span>Configuración</span></a>`;
 }
+/** Aviso de base caída. Va antes que cualquier vista: los números de
+ *  abajo no son datos, son ceros por no haber podido leer nada. */
+function avisoConexion(){
+  if(DB.conexion.ok)return "";
+  const pausado=DB.conexion.motivo==="sin_conexion";
+  return `<div class="card pad" style="margin-bottom:16px;border-left:3px solid var(--bad);background:var(--bad-soft)">
+    <div style="display:flex;gap:13px;align-items:flex-start;flex-wrap:wrap">
+      <div style="flex:none;width:34px;height:34px;border-radius:10px;background:var(--bad);color:#fff;display:grid;place-items:center;font-weight:800">!</div>
+      <div style="flex:1;min-width:240px">
+        <b style="font-size:14.5px;color:var(--bad)">No hay conexión con la base de datos</b>
+        <div style="font-size:13px;line-height:1.6;margin-top:6px">
+          <b>Los ceros que ves abajo no son tus datos.</b> Son ceros porque el panel no pudo leer nada.
+          Tu contenido, tus precios y tus archivos siguen guardados en Supabase.
+          ${pausado?`<br><br>La causa más común: <b>Supabase pausa los proyectos del plan gratuito tras 7 días sin uso</b> y el proyecto deja de responder. Se reactiva desde el panel de Supabase y los datos vuelven tal cual, en unos 30 segundos.`:""}
+        </div>
+        <div class="muted" style="font-size:11.5px;margin-top:8px">${esc(DB.conexion.detalle)}</div>
+        <div style="display:flex;gap:9px;margin-top:12px;flex-wrap:wrap">
+          <button class="btn sm pri" data-action="reintentar">Reintentar</button>
+          <a class="btn sm" href="https://supabase.com/dashboard/project/ltigdyhmespykclkulyw" target="_blank" rel="noopener" style="text-decoration:none">Abrir Supabase ↗</a>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
 function render(){
-  document.getElementById("view").innerHTML=(Views[current]||Views.resumen)();
+  document.getElementById("view").innerHTML=avisoConexion()+(Views[current]||Views.resumen)();
   document.getElementById("pageTitle").textContent=TITLES[current]||"Panel";
   buildNav();
   const rem=reminders();document.getElementById("bellDot").hidden=rem.total===0;
@@ -2965,7 +3024,9 @@ document.addEventListener("click",e=>{
   else if(a==="limpiarCmp"){comparar=[];render();}
   else if(a==="newGuia")guiaModal(null);
   else if(a==="newBacklog")backlogModal(null);
+  else if(a==="reintentar"){toast("Reconectando…");DB.init().then(()=>{render();toast(DB.conexion.ok?"Conectado":"Sigue sin responder");});}
   else if(a==="newBacklog")backlogModal(null);
+  else if(a==="reintentar"){toast("Reconectando…");DB.init().then(()=>{render();toast(DB.conexion.ok?"Conectado":"Sigue sin responder");});}
   else if(a==="restaurarGuia"){if(confirm("Carga los "+GUIA_BASE.length+" artículos base. Los que ya editaste con el mismo título se sobrescriben; los que agregaste vos quedan. ¿Seguir?")){restaurarGuiaBase();render();}}
   else if(a==="wipe"){if(confirm("Esto borra TODO el contenido y las metas cargadas. ¿Seguro?"))wipeAll();}
 });
@@ -2981,7 +3042,9 @@ function toggleTheme(){const cur=document.documentElement.getAttribute("data-the
    ============================================================ */
 async function boot(){
   render();setThemeIcon();
-  await DB.init();
+  // Si la base no responde, el panel igual tiene que arrancar y avisar.
+  try{ await DB.init(); }
+  catch(e){ DB._falla("arranque",e); }
   render();
 }
 boot();
